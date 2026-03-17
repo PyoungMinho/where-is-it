@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Rnd } from "react-rnd";
 import { supabase } from "@/lib/supabase";
 import type { Room } from "@/types/room";
@@ -29,7 +29,10 @@ export default function HomePage() {
   );
 
   const [items, setItems] = useState<Item[]>([]);
+  const [allItems, setAllItems] = useState<Item[]>([]);
   const [newItemName, setNewItemName] = useState("");
+
+  const [itemSearchQuery, setItemSearchQuery] = useState("");
 
   const fetchHomes = async () => {
     const { data, error } = await supabase
@@ -65,9 +68,32 @@ export default function HomePage() {
     setRooms((data as Room[]) || []);
   };
 
+  const refreshAllItems = async (targetLocations: Location[]) => {
+    if (targetLocations.length === 0) {
+      setAllItems([]);
+      return;
+    }
+
+    const locationIds = targetLocations.map((location) => location.id);
+
+    const { data, error } = await supabase
+      .from("items")
+      .select("*")
+      .in("location_id", locationIds)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("items fetch (all) error:", error);
+      return;
+    }
+
+    setAllItems((data as Item[]) || []);
+  };
+
   const fetchLocations = async (roomIds: string[]) => {
     if (roomIds.length === 0) {
       setLocations([]);
+      setAllItems([]);
       return;
     }
 
@@ -82,7 +108,9 @@ export default function HomePage() {
       return;
     }
 
-    setLocations((data as Location[]) || []);
+    const locationList = (data as Location[]) || [];
+    setLocations(locationList);
+    await refreshAllItems(locationList);
   };
 
   const fetchItems = async (locationId: string) => {
@@ -221,6 +249,7 @@ export default function HomePage() {
 
     setNewItemName("");
     await fetchItems(selectedLocationId);
+    await refreshAllItems(locations);
   };
 
   const updateRoomLayout = async (
@@ -264,8 +293,31 @@ export default function HomePage() {
   };
 
   const getItemsCountByLocationId = (locationId: string) => {
-    return items.filter((item) => item.location_id === locationId).length;
+    return allItems.filter((item) => item.location_id === locationId).length;
   };
+
+  const searchedItems = useMemo(() => {
+    const query = itemSearchQuery.trim().toLowerCase();
+    if (!query) return [];
+
+    return allItems
+      .filter((item) => item.name.toLowerCase().includes(query))
+      .map((item) => {
+        const location = locations.find(
+          (location) => location.id === item.location_id,
+        );
+        const room = location
+          ? rooms.find((room) => room.id === location.room_id)
+          : undefined;
+
+        return {
+          item,
+          location,
+          room,
+        };
+      })
+      .filter((result) => result.location && result.room);
+  }, [itemSearchQuery, allItems, locations, rooms]);
 
   const deleteSelectedLocation = async () => {
     if (!selectedLocationId) {
@@ -425,8 +477,8 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[#F9FAFB] text-slate-900">
-      <div className="mx-auto flex h-screen max-w-6xl flex-col px-8 py-8">
-        <header className="mb-6 flex items-center justify-between">
+      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-8 py-8">
+        <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-[32px]">
               어디있니?
@@ -436,9 +488,56 @@ export default function HomePage() {
               있는지”를 한 번에 정리해요.
             </p>
           </div>
-          <span className="hidden items-center rounded-full border border-[#E5E7EB] bg-white px-4 py-1.5 text-xs font-medium text-slate-600 shadow-sm sm:inline-flex">
-            구조 편집 모드
-          </span>
+          <div className="flex flex-col gap-2 sm:w-80">
+            <span className="hidden items-center justify-between rounded-full border border-[#E5E7EB] bg-white px-4 py-1.5 text-xs font-medium text-slate-600 shadow-sm sm:inline-flex">
+              <span>구조 편집 모드</span>
+            </span>
+            <div className="relative">
+              <input
+                value={itemSearchQuery}
+                onChange={(e) => setItemSearchQuery(e.target.value)}
+                placeholder="물건 이름으로 검색해 위치 찾기"
+                className="w-full rounded-full border border-[#E5E7EB] bg-white px-4 py-2.5 pr-10 text-xs text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400">
+                ⌘K
+              </span>
+            </div>
+            {itemSearchQuery.trim() && (
+              <div className="mt-1 max-h-56 overflow-y-auto rounded-xl border border-[#E5E7EB] bg-white p-2 text-xs shadow-lg">
+                {searchedItems.length === 0 ? (
+                  <p className="px-1 py-1.5 text-[11px] text-slate-400">
+                    검색 결과가 없어요.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {searchedItems.map(({ item, location, room }) => (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!location || !room) return;
+                            setSelectedHomeId(room.home_id);
+                            setActiveRoomId(room.id);
+                            setSelectedLocationId(location.id);
+                            setItemSearchQuery("");
+                          }}
+                          className="flex w-full flex-col rounded-lg px-2 py-1.5 text-left text-[11px] hover:bg-slate-50"
+                        >
+                          <span className="font-medium text-slate-900">
+                            {item.name}
+                          </span>
+                          <span className="mt-0.5 text-[10px] text-slate-500">
+                            {room?.name} / {location?.name}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
         </header>
 
         <div className="flex flex-1 flex-col gap-6 md:flex-row">
