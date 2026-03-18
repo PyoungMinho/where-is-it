@@ -282,6 +282,20 @@ export default function HomePage() {
     }
   };
 
+  const moveLocation = async (id: string, x: number, y: number) => {
+    const { error } = await supabase
+      .from("locations")
+      .update({ x, y })
+      .eq("id", id);
+
+    if (error) {
+      console.error("location move error:", error);
+      return;
+    }
+
+    await fetchLocations(rooms.map((room) => room.id));
+  };
+
   const getLocationsByRoomId = (roomId: string) => {
     return locations.filter((location) => location.room_id === roomId);
   };
@@ -568,7 +582,6 @@ export default function HomePage() {
                   <input
                     value={newRoomName}
                     onChange={(e) => setNewRoomName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addRoom()}
                     placeholder="예: 거실, 주방, 안방"
                     className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                   />
@@ -651,7 +664,6 @@ export default function HomePage() {
                       <input
                         value={newLocationName}
                         onChange={(e) => setNewLocationName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addLocation()}
                         placeholder="예: 신발장, 서랍, 상부장"
                         className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                       />
@@ -833,6 +845,7 @@ export default function HomePage() {
                       setItems([]);
                     }}
                     onSelectLocation={(id) => setSelectedLocationId(id)}
+                    onMoveLocation={moveLocation}
                   />
                 </div>
               )}
@@ -1007,25 +1020,57 @@ export default function HomePage() {
                               </button>
                             </div>
 
-                            {/* 바닥 영역 — 2D에서는 수납공간 개수만 표시 */}
+                            {/* 바닥 영역 — 수납공간 박스 표시 */}
                             <div
                               style={{
                                 position: "relative",
                                 height: "calc(100% - 22px)",
-                                display: "flex",
-                                alignItems: "flex-end",
-                                justifyContent: "flex-start",
-                                padding: "0 8px 6px",
+                                overflow: "hidden",
                               }}
                             >
-                              {(() => {
-                                const cnt = getLocationsByRoomId(room.id).length;
-                                return cnt > 0 ? (
-                                  <span style={{ fontSize: "10px", color: "rgba(0,0,0,0.35)", userSelect: "none" }}>
-                                    수납공간 {cnt}개
-                                  </span>
-                                ) : null;
-                              })()}
+                              {getLocationsByRoomId(room.id).map((loc) => {
+                                const isLocSelected = selectedLocationId === loc.id;
+                                const itemCnt = allItems.filter((i) => i.location_id === loc.id).length;
+                                return (
+                                  <div
+                                    key={loc.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveRoomId(room.id);
+                                      setSelectedLocationId(loc.id);
+                                      fetchItems(loc.id);
+                                    }}
+                                    style={{
+                                      position: "absolute",
+                                      left: loc.x,
+                                      top: loc.y,
+                                      width: loc.width,
+                                      height: loc.height,
+                                      background: isLocSelected ? "rgba(79,70,229,0.25)" : "rgba(255,255,255,0.55)",
+                                      border: `1.5px solid ${isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.25)"}`,
+                                      borderRadius: 2,
+                                      boxSizing: "border-box",
+                                      cursor: "pointer",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      gap: 1,
+                                      userSelect: "none",
+                                      transition: "border-color 120ms, background 120ms",
+                                    }}
+                                  >
+                                    <span style={{ fontSize: "9px", fontWeight: 700, color: isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.6)", lineHeight: 1.2, textAlign: "center", padding: "0 2px" }}>
+                                      {loc.name}
+                                    </span>
+                                    {itemCnt > 0 && (
+                                      <span style={{ fontSize: "8px", color: isLocSelected ? "#6d60f0" : "rgba(0,0,0,0.35)" }}>
+                                        {itemCnt}개
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         </Rnd>

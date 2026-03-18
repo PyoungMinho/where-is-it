@@ -11,7 +11,7 @@ import type { Item } from "@/types/item";
 
 const SCALE = 60;
 const WALL_HEIGHT = 2.6;
-const WALL_THICKNESS = 0.18;
+const WALL_THICKNESS = 0.08;
 const FURNITURE_HEIGHT = 0.85;
 const FLOOR_THICKNESS = 0.06;
 
