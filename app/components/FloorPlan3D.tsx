@@ -5,7 +5,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Text } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { Mesh } from "three";
-import type { Room } from "@/types/room";
+import type { Room, Opening } from "@/types/room";
 import type { Location } from "@/types/location";
 import type { Item } from "@/types/item";
 
@@ -14,6 +14,92 @@ const WALL_HEIGHT = 2.6;
 const WALL_THICKNESS = 0.08;
 const FURNITURE_HEIGHT = 0.85;
 const FLOOR_THICKNESS = 0.06;
+const DOOR_H = 2.1;
+const WIN_SILL = 0.85;
+const WIN_TOP = 1.85;
+
+function buildWallSegs(wallLen: number, gaps: { s: number; e: number }[]) {
+  const sorted = [...gaps].sort((a, b) => a.s - b.s);
+  const segs: { s: number; e: number }[] = [];
+  let cur = -wallLen / 2;
+  for (const g of sorted) {
+    if (g.s > cur) segs.push({ s: cur, e: g.s });
+    cur = Math.max(cur, g.e);
+  }
+  if (cur < wallLen / 2) segs.push({ s: cur, e: wallLen / 2 });
+  return segs;
+}
+
+function computeGap(op: Opening, wallLen: number) {
+  const opW = op.width / SCALE;
+  const inner = wallLen - 2 * WALL_THICKNESS;
+  const gs = -wallLen / 2 + WALL_THICKNESS + op.position * Math.max(inner - opW, 0);
+  return { gs, ge: gs + opW, gc: gs + opW / 2, opW };
+}
+
+function DoorOpening3D({ wallType, gc, opW, axis, wallPos }: {
+  wallType: Opening["wall"]; gc: number; opW: number; axis: "x" | "z"; wallPos: number;
+}) {
+  const wt = WALL_THICKNESS + 0.01;
+  const fw = 0.035;
+  const panelW = opW - fw * 2;
+  const panelH = DOOR_H - fw;
+  const isNS = axis === "x";
+
+  const fp = (a: number, y: number): [number, number, number] =>
+    isNS ? [a, y, wallPos] : [wallPos, y, a];
+  const fs = (l: number, h: number): [number, number, number] =>
+    isNS ? [l, h, wt] : [wt, h, l];
+
+  const hingeA = gc - opW / 2 + fw;
+  const grpPos: [number, number, number] = isNS ? [hingeA, 0, wallPos] : [wallPos, 0, hingeA];
+  // N,E → negative rot (opens into room); S,W → positive
+  const rotSign = wallType === "s" || wallType === "w" ? 1 : -1;
+  const grpRot: [number, number, number] = [0, rotSign * 1.3, 0];
+  const meshPos: [number, number, number] = isNS ? [panelW / 2, panelH / 2 + fw, 0] : [0, panelH / 2 + fw, panelW / 2];
+  const meshSz: [number, number, number] = isNS ? [panelW, panelH, 0.04] : [0.04, panelH, panelW];
+
+  return (
+    <group>
+      <mesh position={fp(gc - opW / 2 + fw / 2, DOOR_H / 2)}><boxGeometry args={fs(fw, DOOR_H)} /><meshStandardMaterial color="#4a2e10" roughness={0.6} /></mesh>
+      <mesh position={fp(gc + opW / 2 - fw / 2, DOOR_H / 2)}><boxGeometry args={fs(fw, DOOR_H)} /><meshStandardMaterial color="#4a2e10" roughness={0.6} /></mesh>
+      <mesh position={fp(gc, DOOR_H - fw / 2)}><boxGeometry args={fs(opW, fw)} /><meshStandardMaterial color="#4a2e10" roughness={0.6} /></mesh>
+      <group position={grpPos} rotation={grpRot}>
+        <mesh castShadow position={meshPos}><boxGeometry args={meshSz} /><meshStandardMaterial color="#7a5530" roughness={0.5} /></mesh>
+        <mesh position={isNS ? [panelW * 0.85, panelH * 0.45 + fw, 0.025] : [0.025, panelH * 0.45 + fw, panelW * 0.85]}>
+          <sphereGeometry args={[0.022, 8, 8]} /><meshStandardMaterial color="#c8a840" metalness={0.8} roughness={0.2} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function WindowOpening3D({ gc, opW, axis, wallPos }: {
+  wallType: Opening["wall"]; gc: number; opW: number; axis: "x" | "z"; wallPos: number;
+}) {
+  const wt = WALL_THICKNESS + 0.01;
+  const fw = 0.025;
+  const winH = WIN_TOP - WIN_SILL;
+  const isNS = axis === "x";
+
+  const fp = (a: number, y: number): [number, number, number] =>
+    isNS ? [a, y, wallPos] : [wallPos, y, a];
+  const fs = (l: number, h: number): [number, number, number] =>
+    isNS ? [l, h, wt] : [wt, h, l];
+  const glassPos: [number, number, number] = isNS ? [gc, WIN_SILL + winH / 2, wallPos] : [wallPos, WIN_SILL + winH / 2, gc];
+  const glassSz: [number, number, number] = isNS ? [opW - fw * 2, winH - fw * 2, 0.008] : [0.008, winH - fw * 2, opW - fw * 2];
+
+  return (
+    <group>
+      <mesh position={fp(gc, WIN_SILL + fw / 2)}><boxGeometry args={fs(opW, fw)} /><meshStandardMaterial color="#e0e0e0" roughness={0.4} /></mesh>
+      <mesh position={fp(gc, WIN_TOP - fw / 2)}><boxGeometry args={fs(opW, fw)} /><meshStandardMaterial color="#e0e0e0" roughness={0.4} /></mesh>
+      <mesh position={fp(gc - opW / 2 + fw / 2, WIN_SILL + winH / 2)}><boxGeometry args={fs(fw, winH)} /><meshStandardMaterial color="#e0e0e0" roughness={0.4} /></mesh>
+      <mesh position={fp(gc + opW / 2 - fw / 2, WIN_SILL + winH / 2)}><boxGeometry args={fs(fw, winH)} /><meshStandardMaterial color="#e0e0e0" roughness={0.4} /></mesh>
+      <mesh position={fp(gc, WIN_SILL + winH / 2)}><boxGeometry args={fs(fw * 0.6, winH)} /><meshStandardMaterial color="#e0e0e0" roughness={0.4} /></mesh>
+      <mesh position={glassPos}><boxGeometry args={glassSz} /><meshStandardMaterial color="#8cc8f0" transparent opacity={0.4} roughness={0.05} metalness={0.1} /></mesh>
+    </group>
+  );
+}
 
 // 벽면 타입 판별
 function getWallType(type: string): "floor" | "wall_n" | "wall_s" | "wall_e" | "wall_w" {
@@ -120,11 +206,14 @@ function WallFurniture3D({
 // ── 바닥 가구 (드래그 가능) ─────────────────────────────────────
 function FloorFurniture3D({
   x, z, w, d, name, isSelected, itemCount, onClick, onDragStart, isDraggingThis,
+  onMove, onUp,
 }: {
   x: number; z: number; w: number; d: number; name: string;
   isSelected: boolean; itemCount: number; isDraggingThis: boolean;
   onClick: () => void;
   onDragStart: (grabX: number, grabZ: number) => void;
+  onMove?: (x: number, z: number) => void;
+  onUp?: () => void;
 }) {
   const meshRef = useRef<Mesh>(null);
   const h = Math.max(FURNITURE_HEIGHT, Math.min(w, d) * 0.8);
@@ -148,6 +237,18 @@ function FloorFurniture3D({
             onDragStart(e.point.x, e.point.z);
           } else {
             onClick();
+          }
+        }}
+        onPointerMove={(e) => {
+          if (isDraggingThis) {
+            e.stopPropagation();
+            onMove?.(e.point.x, e.point.z);
+          }
+        }}
+        onPointerUp={(e) => {
+          if (isDraggingThis) {
+            e.stopPropagation();
+            onUp?.();
           }
         }}
       >
@@ -222,15 +323,14 @@ function Room3D({
     if (orbitRef?.current) orbitRef.current.enabled = false;
   }, [rx, rz, orbitRef]);
 
-  const handleFloorMove = useCallback((e: { stopPropagation: () => void; point: { x: number; z: number } }) => {
+  const handleFloorMove = useCallback((px: number, pz: number) => {
     if (!draggingLocId) return;
-    e.stopPropagation();
     const loc = locations.find(l => l.id === draggingLocId);
     if (!loc) return;
     const fw = toW(loc.width) * 0.92 / 2;
     const fd = toW(loc.height) * 0.92 / 2;
-    const newLx = clamp(e.point.x - rx - dragOffset.current.x, -rw / 2 + fw, rw / 2 - fw);
-    const newLz = clamp(e.point.z - rz - dragOffset.current.z, -rd / 2 + fd, rd / 2 - fd);
+    const newLx = clamp(px - rx - dragOffset.current.x, -rw / 2 + fw, rw / 2 - fw);
+    const newLz = clamp(pz - rz - dragOffset.current.z, -rd / 2 + fd, rd / 2 - fd);
     setTempPos({ x: newLx, z: newLz });
   }, [draggingLocId, locations, rx, rz, rw, rd]);
 
@@ -255,7 +355,7 @@ function Room3D({
     <group position={[rx, 0, rz]}>
       {/* 바닥 (드래그 추적용 큰 hitbox 포함) */}
       <mesh receiveShadow position={[0, 0, 0]}
-        onPointerMove={handleFloorMove}
+        onPointerMove={(e) => handleFloorMove(e.point.x, e.point.z)}
         onPointerUp={handleFloorUp}
         onPointerLeave={handleFloorUp}
         onClick={(e) => { if (!draggingLocId) { e.stopPropagation(); onSelectRoom(room.id); } }}
@@ -264,7 +364,7 @@ function Room3D({
         <meshStandardMaterial color={floorColor} roughness={0.85} />
       </mesh>
       <mesh receiveShadow position={[0, FLOOR_THICKNESS / 2 + 0.001, 0]}
-        onPointerMove={handleFloorMove}
+        onPointerMove={(e) => handleFloorMove(e.point.x, e.point.z)}
         onPointerUp={handleFloorUp}
         onClick={(e) => { if (!draggingLocId) { e.stopPropagation(); onSelectRoom(room.id); } }}
       >
@@ -279,32 +379,87 @@ function Room3D({
         </mesh>
       )}
 
-      {/* 4면 벽 */}
-      {([
-        { pos: [0, WALL_HEIGHT / 2, -rd / 2 + WALL_THICKNESS / 2] as [number, number, number], size: [rw, WALL_HEIGHT, WALL_THICKNESS] as [number, number, number] },
-        { pos: [0, WALL_HEIGHT / 2, rd / 2 - WALL_THICKNESS / 2] as [number, number, number], size: [rw, WALL_HEIGHT, WALL_THICKNESS] as [number, number, number] },
-        { pos: [-rw / 2 + WALL_THICKNESS / 2, WALL_HEIGHT / 2, 0] as [number, number, number], size: [WALL_THICKNESS, WALL_HEIGHT, rd] as [number, number, number] },
-        { pos: [rw / 2 - WALL_THICKNESS / 2, WALL_HEIGHT / 2, 0] as [number, number, number], size: [WALL_THICKNESS, WALL_HEIGHT, rd] as [number, number, number] },
-      ]).map((wall, i) => (
-        <mesh key={i} castShadow receiveShadow position={wall.pos}
-          onClick={(e) => { e.stopPropagation(); onSelectRoom(room.id); }}
-        >
-          <boxGeometry args={wall.size} />
-          <meshStandardMaterial color={wallColor} roughness={0.7} />
-        </mesh>
-      ))}
+      {/* 4면 벽 (문/창문 갭 포함) */}
+      {(["n", "s", "w", "e"] as const).map((wt) => {
+        const isNS = wt === "n" || wt === "s";
+        const len = isNS ? rw : rd;
+        const wallPos = wt === "n" ? -rd / 2 + WALL_THICKNESS / 2
+          : wt === "s" ? rd / 2 - WALL_THICKNESS / 2
+          : wt === "w" ? -rw / 2 + WALL_THICKNESS / 2
+          : rw / 2 - WALL_THICKNESS / 2;
+        const axis = isNS ? "x" as const : "z" as const;
 
-      {isActive && ([
-        { pos: [0, WALL_HEIGHT + 0.01, -rd / 2 + WALL_THICKNESS / 2] as [number, number, number], size: [rw, 0.025, WALL_THICKNESS] as [number, number, number] },
-        { pos: [0, WALL_HEIGHT + 0.01, rd / 2 - WALL_THICKNESS / 2] as [number, number, number], size: [rw, 0.025, WALL_THICKNESS] as [number, number, number] },
-        { pos: [-rw / 2 + WALL_THICKNESS / 2, WALL_HEIGHT + 0.01, 0] as [number, number, number], size: [WALL_THICKNESS, 0.025, rd] as [number, number, number] },
-        { pos: [rw / 2 - WALL_THICKNESS / 2, WALL_HEIGHT + 0.01, 0] as [number, number, number], size: [WALL_THICKNESS, 0.025, rd] as [number, number, number] },
-      ]).map((line, i) => (
-        <mesh key={i} position={line.pos}>
-          <boxGeometry args={line.size} />
-          <meshStandardMaterial color={accentColor} />
-        </mesh>
-      ))}
+        const wallOps = (room.openings ?? []).filter(op => op.wall === wt);
+        const gaps = wallOps.map(op => {
+          const g = computeGap(op, len);
+          return { ...g, op };
+        });
+        const segs = buildWallSegs(len, gaps.map(g => ({ s: g.gs, e: g.ge })));
+
+        const sp = (a: number, y: number): [number, number, number] =>
+          isNS ? [a, y, wallPos] : [wallPos, y, a];
+        const ss = (l: number, hh: number): [number, number, number] =>
+          isNS ? [l, hh, WALL_THICKNESS] : [WALL_THICKNESS, hh, l];
+
+        return (
+          <group key={wt}>
+            {segs.map((seg, i) => {
+              const sl = seg.e - seg.s;
+              const sc = (seg.s + seg.e) / 2;
+              return (
+                <mesh key={i} castShadow receiveShadow position={sp(sc, WALL_HEIGHT / 2)}
+                  onClick={(e) => { e.stopPropagation(); onSelectRoom(room.id); }}
+                >
+                  <boxGeometry args={ss(sl, WALL_HEIGHT)} />
+                  <meshStandardMaterial color={wallColor} roughness={0.7} />
+                </mesh>
+              );
+            })}
+
+            {gaps.map(({ op, gc, opW }) => (
+              <group key={op.id}>
+                {op.type === "door" ? (
+                  <>
+                    {/* 문 위 인방 */}
+                    <mesh castShadow receiveShadow position={sp(gc, DOOR_H + (WALL_HEIGHT - DOOR_H) / 2)}
+                      onClick={(e) => { e.stopPropagation(); onSelectRoom(room.id); }}
+                    >
+                      <boxGeometry args={ss(opW, WALL_HEIGHT - DOOR_H)} />
+                      <meshStandardMaterial color={wallColor} roughness={0.7} />
+                    </mesh>
+                    <DoorOpening3D wallType={op.wall} gc={gc} opW={opW} axis={axis} wallPos={wallPos} />
+                  </>
+                ) : (
+                  <>
+                    {/* 창문 아래 벽 */}
+                    <mesh castShadow receiveShadow position={sp(gc, WIN_SILL / 2)}
+                      onClick={(e) => { e.stopPropagation(); onSelectRoom(room.id); }}
+                    >
+                      <boxGeometry args={ss(opW, WIN_SILL)} />
+                      <meshStandardMaterial color={wallColor} roughness={0.7} />
+                    </mesh>
+                    {/* 창문 위 벽 */}
+                    <mesh castShadow receiveShadow position={sp(gc, WIN_TOP + (WALL_HEIGHT - WIN_TOP) / 2)}
+                      onClick={(e) => { e.stopPropagation(); onSelectRoom(room.id); }}
+                    >
+                      <boxGeometry args={ss(opW, WALL_HEIGHT - WIN_TOP)} />
+                      <meshStandardMaterial color={wallColor} roughness={0.7} />
+                    </mesh>
+                    <WindowOpening3D wallType={op.wall} gc={gc} opW={opW} axis={axis} wallPos={wallPos} />
+                  </>
+                )}
+              </group>
+            ))}
+
+            {isActive && (
+              <mesh position={sp(0, WALL_HEIGHT + 0.01)}>
+                <boxGeometry args={isNS ? [len, 0.025, WALL_THICKNESS] : [WALL_THICKNESS, 0.025, len]} />
+                <meshStandardMaterial color={accentColor} />
+              </mesh>
+            )}
+          </group>
+        );
+      })}
 
       <Text
         position={[0, WALL_HEIGHT + 0.2, 0]}
@@ -353,6 +508,8 @@ function Room3D({
             isDraggingThis={isDraggingThis}
             onClick={() => onSelectLocation(loc.id)}
             onDragStart={(grabX, grabZ) => startDrag(loc.id, grabX, grabZ, lx, lz)}
+            onMove={(px, pz) => handleFloorMove(px, pz)}
+            onUp={handleFloorUp}
           />
         );
       })}
@@ -364,7 +521,7 @@ function Ground() {
   return (
     <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
       <planeGeometry args={[40, 40]} />
-      <meshStandardMaterial color="#1a1a1e" roughness={0.9} />
+      <meshStandardMaterial color="#f0f0f0" roughness={0.9} />
     </mesh>
   );
 }
@@ -408,7 +565,7 @@ export default function FloorPlan3D({
         shadow-bias={-0.001}
       />
       <directionalLight position={[cx - 4, 6, cz + 8]} intensity={0.35} color="#b8d4ff" />
-      <hemisphereLight args={["#e8f0ff", "#3a2a1a", 0.4]} />
+      <hemisphereLight args={["#e8f0ff", "#d0c8b8", 0.5]} />
       <Ground />
 
       {rooms.map(room => (

@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { Rnd } from "react-rnd";
 import { supabase } from "@/lib/supabase";
-import type { Room } from "@/types/room";
+import type { Room, Opening } from "@/types/room";
 import type { Location } from "@/types/location";
 import type { Item } from "@/types/item";
 
@@ -42,6 +42,18 @@ export default function HomePage() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [viewMode, setViewMode] = useState<"2d" | "3d">("2d");
+
+  const [opDrag, setOpDrag] = useState<{
+    roomId: string;
+    openingId: string;
+    wall: Opening["wall"];
+    startPos: number;
+    startClient: { x: number; y: number };
+    roomW: number;
+    roomH: number;
+    opW: number;
+    curPos: number;
+  } | null>(null);
   // 3D Canvas는 처음 3D 모드 진입 시 한 번만 마운트 (hidden 상태 초기 마운트 방지)
   const [has3DInitialized, setHas3DInitialized] = useState(false);
 
@@ -139,14 +151,28 @@ export default function HomePage() {
     setItems((data as Item[]) || []);
   };
 
+  const [newHomeName, setNewHomeName] = useState("");
+  const [editingHomeId, setEditingHomeId] = useState<string | null>(null);
+  const [editingHomeName, setEditingHomeName] = useState("");
+
   const addHome = async () => {
-    const { error } = await supabase.from("homes").insert([{ name: "우리집" }]);
+    const name = newHomeName.trim() || "우리집";
+    const { error } = await supabase.from("homes").insert([{ name }]);
 
     if (error) {
       console.error("home insert error:", error);
       return;
     }
 
+    setNewHomeName("");
+    await fetchHomes();
+  };
+
+  const renameHome = async (id: string, name: string) => {
+    if (!name.trim()) return;
+    const { error } = await supabase.from("homes").update({ name: name.trim() }).eq("id", id);
+    if (error) { console.error("home rename error:", error); return; }
+    setEditingHomeId(null);
     await fetchHomes();
   };
 
@@ -280,6 +306,85 @@ export default function HomePage() {
     if (selectedHomeId) {
       await fetchRooms(selectedHomeId);
     }
+  };
+
+  const updateRoomOpenings = async (roomId: string, openings: Opening[]) => {
+    const { error } = await supabase
+      .from("rooms")
+      .update({ openings })
+      .eq("id", roomId);
+
+    if (error) {
+      console.error("openings update error:", error);
+      return;
+    }
+
+    setRooms((prev) =>
+      prev.map((r) => (r.id === roomId ? { ...r, openings } : r)),
+    );
+  };
+
+  const handleOpDragMove = (e: React.MouseEvent) => {
+    if (!opDrag) return;
+    const isNS = opDrag.wall === "n" || opDrag.wall === "s";
+    const innerLen = isNS ? opDrag.roomW - 20 : opDrag.roomH - 20;
+    const maxTravel = Math.max(innerLen - opDrag.opW, 1);
+    const rawDelta = isNS
+      ? (e.clientX - opDrag.startClient.x) / zoom
+      : (e.clientY - opDrag.startClient.y) / zoom;
+    const newPos = Math.max(0, Math.min(1, opDrag.startPos + rawDelta / maxTravel));
+    setOpDrag((prev) => (prev ? { ...prev, curPos: newPos } : null));
+  };
+
+  const handleOpDragEnd = () => {
+    if (!opDrag) return;
+    const room = rooms.find((r) => r.id === opDrag.roomId);
+    if (room) {
+      const newOpenings = (room.openings ?? []).map((o) =>
+        o.id === opDrag.openingId ? { ...o, position: opDrag.curPos } : o,
+      );
+      void updateRoomOpenings(opDrag.roomId, newOpenings);
+    }
+    setOpDrag(null);
+  };
+
+  const addOpening = (type: Opening["type"]) => {
+    if (!activeRoomId) return;
+    const room = rooms.find((r) => r.id === activeRoomId);
+    if (!room) return;
+    const existing = room.openings ?? [];
+    const newOpening: Opening = {
+      id: crypto.randomUUID(),
+      type,
+      wall: "n",
+      position: Math.min(0.2 + existing.length * 0.15, 0.7),
+      width: type === "door" ? 40 : 30,
+    };
+    void updateRoomOpenings(activeRoomId, [...existing, newOpening]);
+  };
+
+  const removeOpening = (roomId: string, openingId: string) => {
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    void updateRoomOpenings(
+      roomId,
+      (room.openings ?? []).filter((o) => o.id !== openingId),
+    );
+  };
+
+  const changeOpeningWall = (
+    roomId: string,
+    openingId: string,
+    wall: Opening["wall"],
+  ) => {
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room) return;
+    void updateRoomOpenings(
+      roomId,
+      (room.openings ?? []).map((o) =>
+        o.id === openingId ? { ...o, wall } : o,
+      ),
+    );
   };
 
   const moveLocation = async (id: string, x: number, y: number) => {
@@ -551,7 +656,7 @@ export default function HomePage() {
               <div className="mt-1.5 flex items-center gap-2">
                 <select
                   value={selectedHomeId ?? ""}
-                  onChange={(e) => setSelectedHomeId(e.target.value)}
+                  onChange={(e) => { setSelectedHomeId(e.target.value); setEditingHomeId(null); }}
                   className="block w-full flex-1 appearance-none rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                 >
                   <option value="">집을 선택하세요</option>
@@ -561,9 +666,44 @@ export default function HomePage() {
                     </option>
                   ))}
                 </select>
+                {selectedHomeId && (
+                  <button
+                    onClick={() => {
+                      const h = homes.find(h => h.id === selectedHomeId);
+                      if (h) { setEditingHomeId(h.id); setEditingHomeName(h.name); }
+                    }}
+                    className="shrink-0 inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2.5 text-xs text-slate-500 shadow-sm transition hover:border-slate-300"
+                    title="집 이름 변경"
+                  >
+                    ✏️
+                  </button>
+                )}
+              </div>
+              {editingHomeId && (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    value={editingHomeName}
+                    onChange={(e) => setEditingHomeName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); renameHome(editingHomeId, editingHomeName); } if (e.key === "Escape") setEditingHomeId(null); }}
+                    autoFocus
+                    className="flex-1 rounded-lg border border-[#4F46E5] bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-2 ring-[#4F46E5]/20"
+                    placeholder="집 이름"
+                  />
+                  <button onClick={() => renameHome(editingHomeId, editingHomeName)} className="shrink-0 rounded-lg bg-[#4F46E5] px-3 py-2 text-xs font-medium text-white">저장</button>
+                  <button onClick={() => setEditingHomeId(null)} className="shrink-0 rounded-lg border border-[#E5E7EB] px-3 py-2 text-xs text-slate-500">취소</button>
+                </div>
+              )}
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={newHomeName}
+                  onChange={(e) => setNewHomeName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+                  placeholder="새 집 이름 (비워두면 '우리집')"
+                  className="flex-1 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+                />
                 <button
                   onClick={addHome}
-                  className="shrink-0 inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-300"
+                  className="shrink-0 inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-300"
                 >
                   + 집
                 </button>
@@ -582,6 +722,7 @@ export default function HomePage() {
                   <input
                     value={newRoomName}
                     onChange={(e) => setNewRoomName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
                     placeholder="예: 거실, 주방, 안방"
                     className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                   />
@@ -613,6 +754,75 @@ export default function HomePage() {
                     ))}
                   </ul>
                 )}
+
+                {/* 선택된 방의 문/창문 설정 */}
+                {activeRoomId && (() => {
+                  const activeRoom = rooms.find((r) => r.id === activeRoomId);
+                  if (!activeRoom) return null;
+                  const openings = activeRoom.openings ?? [];
+                  return (
+                    <div className="mt-4 border-t border-[#E5E7EB] pt-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[11px] font-semibold text-slate-700">
+                          {activeRoom.name} 문/창문
+                        </p>
+                        <div className="flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => addOpening("door")}
+                            className="text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+                          >
+                            + 문
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => addOpening("window")}
+                            className="text-[10px] px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-600 transition"
+                          >
+                            + 창문
+                          </button>
+                        </div>
+                      </div>
+                      {openings.length === 0 ? (
+                        <p className="text-[10px] text-slate-400">아직 문이나 창문이 없어요.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {openings.map((op) => (
+                            <li
+                              key={op.id}
+                              className="flex items-center gap-1.5 text-[10px] bg-slate-50 rounded-lg px-2 py-1.5"
+                            >
+                              <span className="text-sm">{op.type === "door" ? "🚪" : "🪟"}</span>
+                              <select
+                                value={op.wall}
+                                onChange={(e) =>
+                                  changeOpeningWall(
+                                    activeRoom.id,
+                                    op.id,
+                                    e.target.value as Opening["wall"],
+                                  )
+                                }
+                                className="flex-1 rounded border border-[#E5E7EB] px-1 py-0.5 text-[10px] outline-none"
+                              >
+                                <option value="n">위 벽</option>
+                                <option value="s">아래 벽</option>
+                                <option value="e">오른쪽 벽</option>
+                                <option value="w">왼쪽 벽</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => removeOpening(activeRoom.id, op.id)}
+                                className="text-slate-300 hover:text-red-400 transition text-base leading-none"
+                              >
+                                ×
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -664,6 +874,7 @@ export default function HomePage() {
                       <input
                         value={newLocationName}
                         onChange={(e) => setNewLocationName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
                         placeholder="예: 신발장, 서랍, 상부장"
                         className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                       />
@@ -808,18 +1019,24 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="relative h-[520px] w-full overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1c1c1e]">
+            <div
+              className="relative h-[520px] w-full overflow-hidden rounded-xl border"
+              style={{
+                background: "#ffffff",
+                borderColor: "#e5e7eb",
+              }}
+            >
               {/* 빈 상태 */}
               {!selectedHomeId && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-                  <p className="text-sm font-medium text-slate-200">먼저 집을 추가하고 선택해주세요.</p>
-                  <p className="max-w-xs text-xs text-slate-500">왼쪽에서 <span className="font-medium text-slate-300">집을 추가</span> 한 뒤 선택하세요.</p>
+                  <p className="text-sm font-medium text-slate-500">먼저 집을 추가하고 선택해주세요.</p>
+                  <p className="max-w-xs text-xs text-slate-400">왼쪽에서 <span className="font-medium text-slate-500">집을 추가</span> 한 뒤 선택하세요.</p>
                 </div>
               )}
               {selectedHomeId && rooms.length === 0 && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-                  <p className="text-sm font-medium text-slate-200">선택한 집에 아직 방이 없어요.</p>
-                  <p className="max-w-xs text-xs text-slate-500">왼쪽에서 방을 추가해보세요.</p>
+                  <p className="text-sm font-medium text-slate-500">선택한 집에 아직 방이 없어요.</p>
+                  <p className="max-w-xs text-xs text-slate-400">왼쪽에서 방을 추가해보세요.</p>
                 </div>
               )}
 
@@ -853,7 +1070,7 @@ export default function HomePage() {
               {/* 2D 뷰 */}
               {selectedHomeId && rooms.length > 0 && viewMode === "2d" && (
                 <Fragment>
-                  <div className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(rgba(255,255,255,0.04)_0_1px,transparent_1px_28px),repeating-linear-gradient(90deg,rgba(255,255,255,0.04)_0_1px,transparent_1px_28px)] [background-size:28px_28px]" />
+                  <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(rgba(0,0,0,0.05) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 28px)", backgroundSize: "28px 28px" }} />
                   <div className="absolute right-4 top-4 z-20 flex flex-col items-end gap-2 text-[10px] text-slate-500">
                     <div className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 shadow-sm">
                       <span className="text-[9px] text-slate-400">줌</span>
@@ -921,7 +1138,13 @@ export default function HomePage() {
                       </button>
                     </div>
                   </div>
-                  <div className="relative h-full w-full">
+                  <div
+                    className="relative h-full w-full"
+                    onMouseMove={handleOpDragMove}
+                    onMouseUp={handleOpDragEnd}
+                    onMouseLeave={handleOpDragEnd}
+                    style={{ cursor: opDrag ? "grabbing" : undefined }}
+                  >
                     <div
                       className="relative h-full w-full origin-center"
                       style={{
@@ -979,7 +1202,159 @@ export default function HomePage() {
                               transition: "border-color 150ms, box-shadow 150ms",
                             }}
                           >
-                            {/* 방 이름 바 (드래그 핸들) */}
+                            {/* 문/창문 SVG 오버레이 + 드래그 핸들 */}
+                          {(room.openings ?? []).length > 0 && (() => {
+                            const wallColor = isActiveRoom ? "#4F46E5" : "#2c2c2c";
+                            const floorColor = "#f5ead6";
+                            const iw = room.width - 20;
+                            const ih = room.height - 20;
+                            return (
+                              <>
+                                {/* SVG: 시각적 렌더링만 (pointerEvents none) */}
+                                <svg
+                                  style={{
+                                    position: "absolute",
+                                    top: -10,
+                                    left: -10,
+                                    width: room.width,
+                                    height: room.height,
+                                    overflow: "visible",
+                                    pointerEvents: "none",
+                                    zIndex: 20,
+                                  }}
+                                  viewBox={`0 0 ${room.width} ${room.height}`}
+                                >
+                                  {(room.openings ?? []).map((op) => {
+                                    const ow = op.width;
+                                    const isDraggingThis = opDrag?.openingId === op.id && opDrag?.roomId === room.id;
+                                    const pos = isDraggingThis ? opDrag!.curPos : op.position;
+                                    if (op.wall === "n") {
+                                      const gx = 10 + pos * Math.max(iw - ow, 0);
+                                      return (
+                                        <g key={op.id}>
+                                          <rect x={gx} y={0} width={ow} height={10} fill={floorColor} />
+                                          {op.type === "door" ? (
+                                            <g stroke={wallColor} strokeWidth="0.9" fill="none">
+                                              <line x1={gx} y1={10} x2={gx} y2={10 + ow} />
+                                              <path d={`M ${gx + ow},10 A ${ow},${ow} 0 0,0 ${gx},${10 + ow}`} />
+                                            </g>
+                                          ) : (
+                                            <g stroke={wallColor} strokeWidth="1.2">
+                                              {[2, 5, 8].map((dy) => (
+                                                <line key={dy} x1={gx + 2} y1={dy} x2={gx + ow - 2} y2={dy} />
+                                              ))}
+                                            </g>
+                                          )}
+                                        </g>
+                                      );
+                                    }
+                                    if (op.wall === "s") {
+                                      const gx = 10 + pos * Math.max(iw - ow, 0);
+                                      const gy = room.height - 10;
+                                      return (
+                                        <g key={op.id}>
+                                          <rect x={gx} y={gy} width={ow} height={10} fill={floorColor} />
+                                          {op.type === "door" ? (
+                                            <g stroke={wallColor} strokeWidth="0.9" fill="none">
+                                              <line x1={gx} y1={gy} x2={gx} y2={gy - ow} />
+                                              <path d={`M ${gx + ow},${gy} A ${ow},${ow} 0 0,1 ${gx},${gy - ow}`} />
+                                            </g>
+                                          ) : (
+                                            <g stroke={wallColor} strokeWidth="1.2">
+                                              {[2, 5, 8].map((dy) => (
+                                                <line key={dy} x1={gx + 2} y1={gy + dy} x2={gx + ow - 2} y2={gy + dy} />
+                                              ))}
+                                            </g>
+                                          )}
+                                        </g>
+                                      );
+                                    }
+                                    if (op.wall === "e") {
+                                      const gx = room.width - 10;
+                                      const gy = 10 + pos * Math.max(ih - ow, 0);
+                                      return (
+                                        <g key={op.id}>
+                                          <rect x={gx} y={gy} width={10} height={ow} fill={floorColor} />
+                                          {op.type === "door" ? (
+                                            <g stroke={wallColor} strokeWidth="0.9" fill="none">
+                                              <line x1={gx} y1={gy} x2={gx - ow} y2={gy} />
+                                              <path d={`M ${gx},${gy + ow} A ${ow},${ow} 0 0,0 ${gx - ow},${gy}`} />
+                                            </g>
+                                          ) : (
+                                            <g stroke={wallColor} strokeWidth="1.2">
+                                              {[2, 5, 8].map((dx) => (
+                                                <line key={dx} x1={gx + dx} y1={gy + 2} x2={gx + dx} y2={gy + ow - 2} />
+                                              ))}
+                                            </g>
+                                          )}
+                                        </g>
+                                      );
+                                    }
+                                    // wall === "w"
+                                    const gy = 10 + pos * Math.max(ih - ow, 0);
+                                    return (
+                                      <g key={op.id}>
+                                        <rect x={0} y={gy} width={10} height={ow} fill={floorColor} />
+                                        {op.type === "door" ? (
+                                          <g stroke={wallColor} strokeWidth="0.9" fill="none">
+                                            <line x1={10} y1={gy} x2={10 + ow} y2={gy} />
+                                            <path d={`M ${10},${gy + ow} A ${ow},${ow} 0 0,1 ${10 + ow},${gy}`} />
+                                          </g>
+                                        ) : (
+                                          <g stroke={wallColor} strokeWidth="1.2">
+                                            {[2, 5, 8].map((dx) => (
+                                              <line key={dx} x1={dx} y1={gy + 2} x2={dx} y2={gy + ow - 2} />
+                                            ))}
+                                          </g>
+                                        )}
+                                      </g>
+                                    );
+                                  })}
+                                </svg>
+
+                                {/* 드래그 핸들: 벽 위에 올려진 투명 div들 */}
+                                {(room.openings ?? []).map((op) => {
+                                  const ow = op.width;
+                                  const isDraggingThis = opDrag?.openingId === op.id && opDrag?.roomId === room.id;
+                                  const pos = isDraggingThis ? opDrag!.curPos : op.position;
+                                  // 핸들은 CSS border 영역(벽 두께 10px)에만 위치 — 방 내부로 침범 금지
+                                  let handleStyle: React.CSSProperties;
+                                  if (op.wall === "n") {
+                                    handleStyle = { position: "absolute", left: pos * Math.max(iw - ow, 0), top: -10, width: ow, height: 10, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
+                                  } else if (op.wall === "s") {
+                                    handleStyle = { position: "absolute", left: pos * Math.max(iw - ow, 0), top: ih, width: ow, height: 10, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
+                                  } else if (op.wall === "e") {
+                                    handleStyle = { position: "absolute", left: iw, top: pos * Math.max(ih - ow, 0), width: 10, height: ow, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
+                                  } else {
+                                    handleStyle = { position: "absolute", left: -10, top: pos * Math.max(ih - ow, 0), width: 10, height: ow, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
+                                  }
+                                  return (
+                                    <div
+                                      key={`handle-${op.id}`}
+                                      style={handleStyle}
+                                      onMouseDown={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        setOpDrag({
+                                          roomId: room.id,
+                                          openingId: op.id,
+                                          wall: op.wall,
+                                          startPos: op.position,
+                                          startClient: { x: e.clientX, y: e.clientY },
+                                          roomW: room.width,
+                                          roomH: room.height,
+                                          opW: ow,
+                                          curPos: op.position,
+                                        });
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </>
+                            );
+                          })()}
+
+                          {/* 방 이름 바 (드래그 핸들) */}
                             <div
                               className="room-drag-handle"
                               style={{
@@ -1046,6 +1421,7 @@ export default function HomePage() {
                                       top: loc.y,
                                       width: loc.width,
                                       height: loc.height,
+                                      zIndex: 30,
                                       background: isLocSelected ? "rgba(79,70,229,0.25)" : "rgba(255,255,255,0.55)",
                                       border: `1.5px solid ${isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.25)"}`,
                                       borderRadius: 2,
