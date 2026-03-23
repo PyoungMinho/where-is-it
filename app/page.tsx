@@ -171,8 +171,14 @@ export default function HomePage() {
 
   const renameHome = async (id: string, name: string) => {
     if (!name.trim()) return;
-    const { error } = await supabase.from("homes").update({ name: name.trim() }).eq("id", id);
-    if (error) { console.error("home rename error:", error); return; }
+    const { error } = await supabase
+      .from("homes")
+      .update({ name: name.trim() })
+      .eq("id", id);
+    if (error) {
+      console.error("home rename error:", error);
+      return;
+    }
     setEditingHomeId(null);
     await fetchHomes();
   };
@@ -335,7 +341,10 @@ export default function HomePage() {
     const rawDelta = isNS
       ? (e.clientX - opDrag.startClient.x) / zoom
       : (e.clientY - opDrag.startClient.y) / zoom;
-    const newPos = Math.max(0, Math.min(1, opDrag.startPos + rawDelta / maxTravel));
+    const newPos = Math.max(
+      0,
+      Math.min(1, opDrag.startPos + rawDelta / maxTravel),
+    );
     setOpDrag((prev) => (prev ? { ...prev, curPos: newPos } : null));
   };
 
@@ -652,14 +661,18 @@ export default function HomePage() {
         <div className="flex flex-1 flex-col gap-6 md:flex-row">
           {/* 왼쪽: 구조/데이터 패널 */}
           <section className="flex w-full flex-col gap-4 md:w-80">
-
             {/* ── 집 선택 (공통) ── */}
             <div className="rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 shadow-sm">
-              <label className="block text-xs font-medium text-slate-600">집</label>
+              <label className="block text-xs font-medium text-slate-600">
+                집
+              </label>
               <div className="mt-1.5 flex items-center gap-2">
                 <select
                   value={selectedHomeId ?? ""}
-                  onChange={(e) => { setSelectedHomeId(e.target.value); setEditingHomeId(null); }}
+                  onChange={(e) => {
+                    setSelectedHomeId(e.target.value);
+                    setEditingHomeId(null);
+                  }}
                   className="block w-full flex-1 appearance-none rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                 >
                   <option value="">집을 선택하세요</option>
@@ -672,8 +685,11 @@ export default function HomePage() {
                 {selectedHomeId && (
                   <button
                     onClick={() => {
-                      const h = homes.find(h => h.id === selectedHomeId);
-                      if (h) { setEditingHomeId(h.id); setEditingHomeName(h.name); }
+                      const h = homes.find((h) => h.id === selectedHomeId);
+                      if (h) {
+                        setEditingHomeId(h.id);
+                        setEditingHomeName(h.name);
+                      }
                     }}
                     className="shrink-0 inline-flex items-center justify-center rounded-lg border border-[#E5E7EB] bg-white px-2.5 py-2.5 text-xs text-slate-500 shadow-sm transition hover:border-slate-300"
                     title="집 이름 변경"
@@ -687,20 +703,38 @@ export default function HomePage() {
                   <input
                     value={editingHomeName}
                     onChange={(e) => setEditingHomeName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); renameHome(editingHomeId, editingHomeName); } if (e.key === "Escape") setEditingHomeId(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        renameHome(editingHomeId, editingHomeName);
+                      }
+                      if (e.key === "Escape") setEditingHomeId(null);
+                    }}
                     autoFocus
                     className="flex-1 rounded-lg border border-[#4F46E5] bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-2 ring-[#4F46E5]/20"
                     placeholder="집 이름"
                   />
-                  <button onClick={() => renameHome(editingHomeId, editingHomeName)} className="shrink-0 rounded-lg bg-[#4F46E5] px-3 py-2 text-xs font-medium text-white">저장</button>
-                  <button onClick={() => setEditingHomeId(null)} className="shrink-0 rounded-lg border border-[#E5E7EB] px-3 py-2 text-xs text-slate-500">취소</button>
+                  <button
+                    onClick={() => renameHome(editingHomeId, editingHomeName)}
+                    className="shrink-0 rounded-lg bg-[#4F46E5] px-3 py-2 text-xs font-medium text-white"
+                  >
+                    저장
+                  </button>
+                  <button
+                    onClick={() => setEditingHomeId(null)}
+                    className="shrink-0 rounded-lg border border-[#E5E7EB] px-3 py-2 text-xs text-slate-500"
+                  >
+                    취소
+                  </button>
                 </div>
               )}
               <div className="mt-2 flex items-center gap-2">
                 <input
                   value={newHomeName}
                   onChange={(e) => setNewHomeName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.preventDefault();
+                  }}
                   placeholder="새 집 이름 (비워두면 '우리집')"
                   className="flex-1 rounded-lg border border-[#E5E7EB] bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                 />
@@ -717,10 +751,16 @@ export default function HomePage() {
             {viewMode === "2d" && (
               <div className="flex-1 rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#1c1c1e] text-[10px] text-white font-bold">2D</span>
-                  <h2 className="text-sm font-semibold text-slate-900">방 배치</h2>
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#1c1c1e] text-[10px] text-white font-bold">
+                    2D
+                  </span>
+                  <h2 className="text-sm font-semibold text-slate-900">
+                    방 배치
+                  </h2>
                 </div>
-                <p className="text-xs text-slate-400 mb-4">방을 만들고 오른쪽 캔버스에서 위치와 크기를 조정하세요.</p>
+                <p className="text-xs text-slate-400 mb-4">
+                  방을 만들고 오른쪽 캔버스에서 위치와 크기를 조정하세요.
+                </p>
                 <div className="space-y-2">
                   {/* 방 / 복도 타입 선택 */}
                   <div className="flex rounded-lg border border-[#E5E7EB] overflow-hidden text-xs font-medium">
@@ -740,8 +780,14 @@ export default function HomePage() {
                   <input
                     value={newRoomName}
                     onChange={(e) => setNewRoomName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-                    placeholder={newRoomType === "hallway" ? "예: 복도, 현관, 계단" : "예: 거실, 주방, 안방"}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.preventDefault();
+                    }}
+                    placeholder={
+                      newRoomType === "hallway"
+                        ? "예: 복도, 현관, 계단"
+                        : "예: 거실, 주방, 안방"
+                    }
                     className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                   />
                   <button
@@ -749,7 +795,9 @@ export default function HomePage() {
                     className="inline-flex w-full items-center justify-center rounded-lg bg-[#4F46E5] px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-[#4338CA] disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={!selectedHomeId}
                   >
-                    {newRoomType === "hallway" ? "복도 추가하기" : "방 추가하기"}
+                    {newRoomType === "hallway"
+                      ? "복도 추가하기"
+                      : "방 추가하기"}
                   </button>
                 </div>
 
@@ -761,7 +809,8 @@ export default function HomePage() {
                         className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700"
                       >
                         <span className="font-medium">
-                          {room.room_type === "hallway" ? "〰️ " : ""}{room.name}
+                          {room.room_type === "hallway" ? "〰️ " : ""}
+                          {room.name}
                         </span>
                         <button
                           type="button"
@@ -776,73 +825,80 @@ export default function HomePage() {
                 )}
 
                 {/* 선택된 방의 문/창문 설정 */}
-                {activeRoomId && (() => {
-                  const activeRoom = rooms.find((r) => r.id === activeRoomId);
-                  if (!activeRoom) return null;
-                  const openings = activeRoom.openings ?? [];
-                  return (
-                    <div className="mt-4 border-t border-[#E5E7EB] pt-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-[11px] font-semibold text-slate-700">
-                          {activeRoom.name} 문/창문
-                        </p>
-                        <div className="flex gap-1">
-                          <button
-                            type="button"
-                            onClick={() => addOpening("door")}
-                            className="text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
-                          >
-                            + 문
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => addOpening("window")}
-                            className="text-[10px] px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-600 transition"
-                          >
-                            + 창문
-                          </button>
-                        </div>
-                      </div>
-                      {openings.length === 0 ? (
-                        <p className="text-[10px] text-slate-400">아직 문이나 창문이 없어요.</p>
-                      ) : (
-                        <ul className="space-y-1.5">
-                          {openings.map((op) => (
-                            <li
-                              key={op.id}
-                              className="flex items-center gap-1.5 text-[10px] bg-slate-50 rounded-lg px-2 py-1.5"
+                {activeRoomId &&
+                  (() => {
+                    const activeRoom = rooms.find((r) => r.id === activeRoomId);
+                    if (!activeRoom) return null;
+                    const openings = activeRoom.openings ?? [];
+                    return (
+                      <div className="mt-4 border-t border-[#E5E7EB] pt-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[11px] font-semibold text-slate-700">
+                            {activeRoom.name} 문/창문
+                          </p>
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => addOpening("door")}
+                              className="text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
                             >
-                              <span className="text-sm">{op.type === "door" ? "🚪" : "🪟"}</span>
-                              <select
-                                value={op.wall}
-                                onChange={(e) =>
-                                  changeOpeningWall(
-                                    activeRoom.id,
-                                    op.id,
-                                    e.target.value as Opening["wall"],
-                                  )
-                                }
-                                className="flex-1 rounded border border-[#E5E7EB] px-1 py-0.5 text-[10px] outline-none"
+                              + 문
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => addOpening("window")}
+                              className="text-[10px] px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-600 transition"
+                            >
+                              + 창문
+                            </button>
+                          </div>
+                        </div>
+                        {openings.length === 0 ? (
+                          <p className="text-[10px] text-slate-400">
+                            아직 문이나 창문이 없어요.
+                          </p>
+                        ) : (
+                          <ul className="space-y-1.5">
+                            {openings.map((op) => (
+                              <li
+                                key={op.id}
+                                className="flex items-center gap-1.5 text-[10px] bg-slate-50 rounded-lg px-2 py-1.5"
                               >
-                                <option value="n">위 벽</option>
-                                <option value="s">아래 벽</option>
-                                <option value="e">오른쪽 벽</option>
-                                <option value="w">왼쪽 벽</option>
-                              </select>
-                              <button
-                                type="button"
-                                onClick={() => removeOpening(activeRoom.id, op.id)}
-                                className="text-slate-300 hover:text-red-400 transition text-base leading-none"
-                              >
-                                ×
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })()}
+                                <span className="text-sm">
+                                  {op.type === "door" ? "🚪" : "🪟"}
+                                </span>
+                                <select
+                                  value={op.wall}
+                                  onChange={(e) =>
+                                    changeOpeningWall(
+                                      activeRoom.id,
+                                      op.id,
+                                      e.target.value as Opening["wall"],
+                                    )
+                                  }
+                                  className="flex-1 rounded border border-[#E5E7EB] px-1 py-0.5 text-[10px] outline-none"
+                                >
+                                  <option value="n">위 벽</option>
+                                  <option value="s">아래 벽</option>
+                                  <option value="e">오른쪽 벽</option>
+                                  <option value="w">왼쪽 벽</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removeOpening(activeRoom.id, op.id)
+                                  }
+                                  className="text-slate-300 hover:text-red-400 transition text-base leading-none"
+                                >
+                                  ×
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })()}
               </div>
             )}
 
@@ -850,7 +906,9 @@ export default function HomePage() {
             {viewMode === "3d" && (
               <div className="flex-1 rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#4F46E5] text-[10px] text-white font-bold">3D</span>
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#4F46E5] text-[10px] text-white font-bold">
+                    3D
+                  </span>
                   <h2 className="text-sm font-semibold text-slate-900">
                     {selectedLocationId
                       ? "물건 관리"
@@ -862,7 +920,10 @@ export default function HomePage() {
                   {selectedLocationId && (
                     <button
                       type="button"
-                      onClick={() => { setSelectedLocationId(null); setItems([]); }}
+                      onClick={() => {
+                        setSelectedLocationId(null);
+                        setItems([]);
+                      }}
                       className="ml-auto text-[11px] text-slate-400 hover:text-slate-700 transition"
                     >
                       ← 뒤로
@@ -874,8 +935,14 @@ export default function HomePage() {
                 {!activeRoomId && (
                   <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
                     <div className="text-2xl">🏠</div>
-                    <p className="text-sm font-medium text-slate-700">방을 클릭하세요</p>
-                    <p className="text-xs text-slate-400">3D 화면에서 방을 클릭하면<br/>수납공간을 추가할 수 있어요.</p>
+                    <p className="text-sm font-medium text-slate-700">
+                      방을 클릭하세요
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      3D 화면에서 방을 클릭하면
+                      <br />
+                      수납공간을 추가할 수 있어요.
+                    </p>
                   </div>
                 )}
 
@@ -887,14 +954,21 @@ export default function HomePage() {
                         {rooms.find((r) => r.id === activeRoomId)?.name}
                       </p>
                       <p className="text-[10px] text-indigo-400 mt-0.5">
-                        수납공간 {locations.filter((l) => l.room_id === activeRoomId).length}개
+                        수납공간{" "}
+                        {
+                          locations.filter((l) => l.room_id === activeRoomId)
+                            .length
+                        }
+                        개
                       </p>
                     </div>
                     <div className="space-y-2">
                       <input
                         value={newLocationName}
                         onChange={(e) => setNewLocationName(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.preventDefault();
+                        }}
                         placeholder="예: 신발장, 서랍, 상부장"
                         className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                       />
@@ -907,12 +981,15 @@ export default function HomePage() {
                     </div>
 
                     {/* 이 방의 수납공간 목록 */}
-                    {locations.filter((l) => l.room_id === activeRoomId).length > 0 && (
+                    {locations.filter((l) => l.room_id === activeRoomId)
+                      .length > 0 && (
                       <ul className="mt-4 space-y-1.5">
                         {locations
                           .filter((l) => l.room_id === activeRoomId)
                           .map((loc) => {
-                            const cnt = allItems.filter((i) => i.location_id === loc.id).length;
+                            const cnt = allItems.filter(
+                              (i) => i.location_id === loc.id,
+                            ).length;
                             return (
                               <li key={loc.id}>
                                 <button
@@ -920,8 +997,12 @@ export default function HomePage() {
                                   onClick={() => setSelectedLocationId(loc.id)}
                                   className="flex w-full items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700 hover:bg-indigo-50 transition"
                                 >
-                                  <span className="font-medium">{loc.name}</span>
-                                  <span className="text-[10px] text-slate-400">{cnt}개</span>
+                                  <span className="font-medium">
+                                    {loc.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    {cnt}개
+                                  </span>
                                 </button>
                               </li>
                             );
@@ -937,7 +1018,10 @@ export default function HomePage() {
                     <div className="mb-3 rounded-lg bg-slate-50 border border-[#E5E7EB] px-3 py-2 flex items-center justify-between">
                       <div>
                         <p className="text-[11px] font-semibold text-slate-700">
-                          {locations.find((l) => l.id === selectedLocationId)?.name}
+                          {
+                            locations.find((l) => l.id === selectedLocationId)
+                              ?.name
+                          }
                         </p>
                         <p className="text-[10px] text-slate-400 mt-0.5">
                           물건 {items.length}개
@@ -968,7 +1052,9 @@ export default function HomePage() {
                     </div>
 
                     {items.length === 0 ? (
-                      <p className="mt-4 text-xs text-slate-400">아직 등록된 물건이 없어요.</p>
+                      <p className="mt-4 text-xs text-slate-400">
+                        아직 등록된 물건이 없어요.
+                      </p>
                     ) : (
                       <ul className="mt-4 space-y-1.5 text-xs text-slate-700">
                         {items.map((item) => (
@@ -1018,7 +1104,10 @@ export default function HomePage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setViewMode("3d"); setHas3DInitialized(true); }}
+                    onClick={() => {
+                      setViewMode("3d");
+                      setHas3DInitialized(true);
+                    }}
                     className={`px-3 py-1.5 transition ${
                       viewMode === "3d"
                         ? "bg-[#4F46E5] text-white"
@@ -1049,14 +1138,26 @@ export default function HomePage() {
               {/* 빈 상태 */}
               {!selectedHomeId && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-                  <p className="text-sm font-medium text-slate-500">먼저 집을 추가하고 선택해주세요.</p>
-                  <p className="max-w-xs text-xs text-slate-400">왼쪽에서 <span className="font-medium text-slate-500">집을 추가</span> 한 뒤 선택하세요.</p>
+                  <p className="text-sm font-medium text-slate-500">
+                    먼저 집을 추가하고 선택해주세요.
+                  </p>
+                  <p className="max-w-xs text-xs text-slate-400">
+                    왼쪽에서{" "}
+                    <span className="font-medium text-slate-500">
+                      집을 추가
+                    </span>{" "}
+                    한 뒤 선택하세요.
+                  </p>
                 </div>
               )}
               {selectedHomeId && rooms.length === 0 && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-                  <p className="text-sm font-medium text-slate-500">선택한 집에 아직 방이 없어요.</p>
-                  <p className="max-w-xs text-xs text-slate-400">왼쪽에서 방을 추가해보세요.</p>
+                  <p className="text-sm font-medium text-slate-500">
+                    선택한 집에 아직 방이 없어요.
+                  </p>
+                  <p className="max-w-xs text-xs text-slate-400">
+                    왼쪽에서 방을 추가해보세요.
+                  </p>
                 </div>
               )}
 
@@ -1066,8 +1167,14 @@ export default function HomePage() {
                   style={{
                     position: "absolute",
                     inset: 0,
-                    visibility: viewMode === "3d" && !!selectedHomeId && rooms.length > 0 ? "visible" : "hidden",
-                    pointerEvents: viewMode === "3d" && !!selectedHomeId && rooms.length > 0 ? "auto" : "none",
+                    visibility:
+                      viewMode === "3d" && !!selectedHomeId && rooms.length > 0
+                        ? "visible"
+                        : "hidden",
+                    pointerEvents:
+                      viewMode === "3d" && !!selectedHomeId && rooms.length > 0
+                        ? "auto"
+                        : "none",
                   }}
                 >
                   <FloorPlan3D
@@ -1090,14 +1197,23 @@ export default function HomePage() {
               {/* 2D 뷰 */}
               {selectedHomeId && rooms.length > 0 && viewMode === "2d" && (
                 <Fragment>
-                  <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(rgba(0,0,0,0.05) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 28px)", backgroundSize: "28px 28px" }} />
+                  <div
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(rgba(0,0,0,0.05) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(0,0,0,0.05) 0 1px, transparent 1px 28px)",
+                      backgroundSize: "28px 28px",
+                    }}
+                  />
                   <div className="absolute right-4 top-4 z-20 flex flex-col items-end gap-2 text-[10px] text-slate-500">
                     <div className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 shadow-sm">
                       <span className="text-[9px] text-slate-400">줌</span>
                       <button
                         type="button"
                         onClick={() =>
-                          setZoom((z) => Math.max(0.5, parseFloat((z - 0.1).toFixed(2))))
+                          setZoom((z) =>
+                            Math.max(0.5, parseFloat((z - 0.1).toFixed(2))),
+                          )
                         }
                         className="flex h-5 w-5 items-center justify-center rounded-full border border-[#E5E7EB] bg-white hover:bg-slate-50"
                       >
@@ -1109,7 +1225,9 @@ export default function HomePage() {
                       <button
                         type="button"
                         onClick={() =>
-                          setZoom((z) => Math.min(2, parseFloat((z + 0.1).toFixed(2))))
+                          setZoom((z) =>
+                            Math.min(2, parseFloat((z + 0.1).toFixed(2))),
+                          )
                         }
                         className="flex h-5 w-5 items-center justify-center rounded-full border border-[#E5E7EB] bg-white hover:bg-slate-50"
                       >
@@ -1172,314 +1290,503 @@ export default function HomePage() {
                         transition: "transform 150ms ease-out",
                       }}
                     >
-                    {rooms.map((room) => {
-                      const isActiveRoom = activeRoomId === room.id;
-                      return (
-                        <Rnd
-                          key={room.id}
-                          size={{ width: room.width, height: room.height }}
-                          position={{ x: room.x, y: room.y }}
-                          bounds="parent"
-                          dragHandleClassName="room-drag-handle"
-                          onDragStop={(_e, d) => {
-                            void updateRoomLayout(room.id, {
-                              x: d.x,
-                              y: d.y,
-                              width: room.width,
-                              height: room.height,
-                            });
-                          }}
-                          onResizeStop={async (
-                            _e,
-                            _direction,
-                            ref,
-                            _delta,
-                            position,
-                          ) => {
-                            await updateRoomLayout(room.id, {
-                              x: position.x,
-                              y: position.y,
-                              width: parseInt(ref.style.width, 10),
-                              height: parseInt(ref.style.height, 10),
-                            });
-                          }}
-                          style={{ boxSizing: "border-box" }}
-                        >
-                          {/* 방/복도: 도면 스타일 */}
-                          <div
-                            onMouseDown={() => setActiveRoomId(room.id)}
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              background: room.room_type === "hallway"
-                                ? "repeating-linear-gradient(-45deg, #ddd6c8 0, #ddd6c8 1.5px, #ede8e0 1.5px, #ede8e0 8px)"
-                                : "#f5ead6",
-                              border: `${room.room_type === "hallway" ? 6 : 10}px solid ${isActiveRoom ? "#4F46E5" : room.room_type === "hallway" ? "#6b7280" : "#2c2c2c"}`,
-                              boxSizing: "border-box",
-                              borderRadius: 2,
-                              position: "relative",
-                              boxShadow: isActiveRoom
-                                ? "0 0 0 2px rgba(79,70,229,0.5), 4px 6px 16px rgba(0,0,0,0.4)"
-                                : "2px 4px 10px rgba(0,0,0,0.3)",
-                              transition: "border-color 150ms, box-shadow 150ms",
+                      {rooms.map((room) => {
+                        const isActiveRoom = activeRoomId === room.id;
+                        return (
+                          <Rnd
+                            key={room.id}
+                            size={{ width: room.width, height: room.height }}
+                            position={{ x: room.x, y: room.y }}
+                            bounds="parent"
+                            dragHandleClassName="room-drag-handle"
+                            onDragStop={(_e, d) => {
+                              void updateRoomLayout(room.id, {
+                                x: d.x,
+                                y: d.y,
+                                width: room.width,
+                                height: room.height,
+                              });
                             }}
+                            onResizeStop={async (
+                              _e,
+                              _direction,
+                              ref,
+                              _delta,
+                              position,
+                            ) => {
+                              await updateRoomLayout(room.id, {
+                                x: position.x,
+                                y: position.y,
+                                width: parseInt(ref.style.width, 10),
+                                height: parseInt(ref.style.height, 10),
+                              });
+                            }}
+                            style={{ boxSizing: "border-box" }}
                           >
-                            {/* 문/창문 SVG 오버레이 + 드래그 핸들 */}
-                          {(room.openings ?? []).length > 0 && (() => {
-                            const wallColor = isActiveRoom ? "#4F46E5" : "#2c2c2c";
-                            const floorColor = "#f5ead6";
-                            const iw = room.width - 20;
-                            const ih = room.height - 20;
-                            return (
-                              <>
-                                {/* SVG: 시각적 렌더링만 (pointerEvents none) */}
-                                <svg
-                                  style={{
-                                    position: "absolute",
-                                    top: -10,
-                                    left: -10,
-                                    width: room.width,
-                                    height: room.height,
-                                    overflow: "visible",
-                                    pointerEvents: "none",
-                                    zIndex: 20,
-                                  }}
-                                  viewBox={`0 0 ${room.width} ${room.height}`}
-                                >
-                                  {(room.openings ?? []).map((op) => {
-                                    const ow = op.width;
-                                    const isDraggingThis = opDrag?.openingId === op.id && opDrag?.roomId === room.id;
-                                    const pos = isDraggingThis ? opDrag!.curPos : op.position;
-                                    if (op.wall === "n") {
-                                      const gx = 10 + pos * Math.max(iw - ow, 0);
-                                      return (
-                                        <g key={op.id}>
-                                          <rect x={gx} y={0} width={ow} height={10} fill={floorColor} />
-                                          {op.type === "door" ? (
-                                            <g stroke={wallColor} strokeWidth="0.9" fill="none">
-                                              <line x1={gx} y1={10} x2={gx} y2={10 + ow} />
-                                              <path d={`M ${gx + ow},10 A ${ow},${ow} 0 0,0 ${gx},${10 + ow}`} />
-                                            </g>
-                                          ) : (
-                                            <g stroke={wallColor} strokeWidth="1.2">
-                                              {[2, 5, 8].map((dy) => (
-                                                <line key={dy} x1={gx + 2} y1={dy} x2={gx + ow - 2} y2={dy} />
-                                              ))}
-                                            </g>
-                                          )}
-                                        </g>
-                                      );
-                                    }
-                                    if (op.wall === "s") {
-                                      const gx = 10 + pos * Math.max(iw - ow, 0);
-                                      const gy = room.height - 10;
-                                      return (
-                                        <g key={op.id}>
-                                          <rect x={gx} y={gy} width={ow} height={10} fill={floorColor} />
-                                          {op.type === "door" ? (
-                                            <g stroke={wallColor} strokeWidth="0.9" fill="none">
-                                              <line x1={gx} y1={gy} x2={gx} y2={gy - ow} />
-                                              <path d={`M ${gx + ow},${gy} A ${ow},${ow} 0 0,1 ${gx},${gy - ow}`} />
-                                            </g>
-                                          ) : (
-                                            <g stroke={wallColor} strokeWidth="1.2">
-                                              {[2, 5, 8].map((dy) => (
-                                                <line key={dy} x1={gx + 2} y1={gy + dy} x2={gx + ow - 2} y2={gy + dy} />
-                                              ))}
-                                            </g>
-                                          )}
-                                        </g>
-                                      );
-                                    }
-                                    if (op.wall === "e") {
-                                      const gx = room.width - 10;
-                                      const gy = 10 + pos * Math.max(ih - ow, 0);
-                                      return (
-                                        <g key={op.id}>
-                                          <rect x={gx} y={gy} width={10} height={ow} fill={floorColor} />
-                                          {op.type === "door" ? (
-                                            <g stroke={wallColor} strokeWidth="0.9" fill="none">
-                                              <line x1={gx} y1={gy} x2={gx - ow} y2={gy} />
-                                              <path d={`M ${gx},${gy + ow} A ${ow},${ow} 0 0,0 ${gx - ow},${gy}`} />
-                                            </g>
-                                          ) : (
-                                            <g stroke={wallColor} strokeWidth="1.2">
-                                              {[2, 5, 8].map((dx) => (
-                                                <line key={dx} x1={gx + dx} y1={gy + 2} x2={gx + dx} y2={gy + ow - 2} />
-                                              ))}
-                                            </g>
-                                          )}
-                                        </g>
-                                      );
-                                    }
-                                    // wall === "w"
-                                    const gy = 10 + pos * Math.max(ih - ow, 0);
-                                    return (
-                                      <g key={op.id}>
-                                        <rect x={0} y={gy} width={10} height={ow} fill={floorColor} />
-                                        {op.type === "door" ? (
-                                          <g stroke={wallColor} strokeWidth="0.9" fill="none">
-                                            <line x1={10} y1={gy} x2={10 + ow} y2={gy} />
-                                            <path d={`M ${10},${gy + ow} A ${ow},${ow} 0 0,1 ${10 + ow},${gy}`} />
-                                          </g>
-                                        ) : (
-                                          <g stroke={wallColor} strokeWidth="1.2">
-                                            {[2, 5, 8].map((dx) => (
-                                              <line key={dx} x1={dx} y1={gy + 2} x2={dx} y2={gy + ow - 2} />
-                                            ))}
-                                          </g>
-                                        )}
-                                      </g>
-                                    );
-                                  })}
-                                </svg>
-
-                                {/* 드래그 핸들: 벽 위에 올려진 투명 div들 */}
-                                {(room.openings ?? []).map((op) => {
-                                  const ow = op.width;
-                                  const isDraggingThis = opDrag?.openingId === op.id && opDrag?.roomId === room.id;
-                                  const pos = isDraggingThis ? opDrag!.curPos : op.position;
-                                  // 핸들은 CSS border 영역(벽 두께 10px)에만 위치 — 방 내부로 침범 금지
-                                  let handleStyle: React.CSSProperties;
-                                  if (op.wall === "n") {
-                                    handleStyle = { position: "absolute", left: pos * Math.max(iw - ow, 0), top: -10, width: ow, height: 10, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
-                                  } else if (op.wall === "s") {
-                                    handleStyle = { position: "absolute", left: pos * Math.max(iw - ow, 0), top: ih, width: ow, height: 10, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
-                                  } else if (op.wall === "e") {
-                                    handleStyle = { position: "absolute", left: iw, top: pos * Math.max(ih - ow, 0), width: 10, height: ow, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
-                                  } else {
-                                    handleStyle = { position: "absolute", left: -10, top: pos * Math.max(ih - ow, 0), width: 10, height: ow, zIndex: 25, cursor: isDraggingThis ? "grabbing" : "grab" };
-                                  }
-                                  return (
-                                    <div
-                                      key={`handle-${op.id}`}
-                                      style={handleStyle}
-                                      onMouseDown={(e) => {
-                                        e.stopPropagation();
-                                        e.preventDefault();
-                                        setOpDrag({
-                                          roomId: room.id,
-                                          openingId: op.id,
-                                          wall: op.wall,
-                                          startPos: op.position,
-                                          startClient: { x: e.clientX, y: e.clientY },
-                                          roomW: room.width,
-                                          roomH: room.height,
-                                          opW: ow,
-                                          curPos: op.position,
-                                        });
-                                      }}
-                                    />
-                                  );
-                                })}
-                              </>
-                            );
-                          })()}
-
-                          {/* 방 이름 바 (드래그 핸들) */}
+                            {/* 방/복도: 도면 스타일 */}
                             <div
-                              className="room-drag-handle"
+                              onMouseDown={() => setActiveRoomId(room.id)}
                               style={{
-                                background: isActiveRoom ? "#4F46E5" : "#2c2c2c",
-                                color: "white",
-                                padding: "3px 8px",
-                                fontSize: "10px",
-                                fontWeight: 700,
-                                cursor: "move",
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                letterSpacing: "0.06em",
-                                textTransform: "uppercase",
-                                userSelect: "none",
-                                transition: "background 150ms",
+                                width: "100%",
+                                height: "100%",
+                                background:
+                                  room.room_type === "hallway"
+                                    ? "repeating-linear-gradient(-45deg, #ddd6c8 0, #ddd6c8 1.5px, #ede8e0 1.5px, #ede8e0 8px)"
+                                    : "#f5ead6",
+                                border: `${room.room_type === "hallway" ? 6 : 10}px solid ${isActiveRoom ? "#4F46E5" : room.room_type === "hallway" ? "#6b7280" : "#2c2c2c"}`,
+                                boxSizing: "border-box",
+                                borderRadius: 2,
+                                position: "relative",
+                                boxShadow: isActiveRoom
+                                  ? "0 0 0 2px rgba(79,70,229,0.5), 4px 6px 16px rgba(0,0,0,0.4)"
+                                  : "2px 4px 10px rgba(0,0,0,0.3)",
+                                transition:
+                                  "border-color 150ms, box-shadow 150ms",
                               }}
                             >
-                              <span>{room.name}</span>
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteRoomWithContents(room.id);
-                                }}
+                              {/* 문/창문 SVG 오버레이 + 드래그 핸들 */}
+                              {(room.openings ?? []).length > 0 &&
+                                (() => {
+                                  const wallColor = isActiveRoom
+                                    ? "#4F46E5"
+                                    : "#2c2c2c";
+                                  const floorColor = "#f5ead6";
+                                  const iw = room.width - 20;
+                                  const ih = room.height - 20;
+                                  return (
+                                    <>
+                                      {/* SVG: 시각적 렌더링만 (pointerEvents none) */}
+                                      <svg
+                                        style={{
+                                          position: "absolute",
+                                          top: -10,
+                                          left: -10,
+                                          width: room.width,
+                                          height: room.height,
+                                          overflow: "visible",
+                                          pointerEvents: "none",
+                                          zIndex: 20,
+                                        }}
+                                        viewBox={`0 0 ${room.width} ${room.height}`}
+                                      >
+                                        {(room.openings ?? []).map((op) => {
+                                          const ow = op.width;
+                                          const isDraggingThis =
+                                            opDrag?.openingId === op.id &&
+                                            opDrag?.roomId === room.id;
+                                          const pos = isDraggingThis
+                                            ? opDrag!.curPos
+                                            : op.position;
+                                          if (op.wall === "n") {
+                                            const gx =
+                                              10 + pos * Math.max(iw - ow, 0);
+                                            return (
+                                              <g key={op.id}>
+                                                <rect
+                                                  x={gx}
+                                                  y={0}
+                                                  width={ow}
+                                                  height={10}
+                                                  fill={floorColor}
+                                                />
+                                                {op.type === "door" ? (
+                                                  <g
+                                                    stroke={wallColor}
+                                                    strokeWidth="0.9"
+                                                    fill="none"
+                                                  >
+                                                    <line
+                                                      x1={gx}
+                                                      y1={10}
+                                                      x2={gx}
+                                                      y2={10 + ow}
+                                                    />
+                                                    <path
+                                                      d={`M ${gx + ow},10 A ${ow},${ow} 0 0,0 ${gx},${10 + ow}`}
+                                                    />
+                                                  </g>
+                                                ) : (
+                                                  <g
+                                                    stroke={wallColor}
+                                                    strokeWidth="1.2"
+                                                  >
+                                                    {[2, 5, 8].map((dy) => (
+                                                      <line
+                                                        key={dy}
+                                                        x1={gx + 2}
+                                                        y1={dy}
+                                                        x2={gx + ow - 2}
+                                                        y2={dy}
+                                                      />
+                                                    ))}
+                                                  </g>
+                                                )}
+                                              </g>
+                                            );
+                                          }
+                                          if (op.wall === "s") {
+                                            const gx =
+                                              10 + pos * Math.max(iw - ow, 0);
+                                            const gy = room.height - 10;
+                                            return (
+                                              <g key={op.id}>
+                                                <rect
+                                                  x={gx}
+                                                  y={gy}
+                                                  width={ow}
+                                                  height={10}
+                                                  fill={floorColor}
+                                                />
+                                                {op.type === "door" ? (
+                                                  <g
+                                                    stroke={wallColor}
+                                                    strokeWidth="0.9"
+                                                    fill="none"
+                                                  >
+                                                    <line
+                                                      x1={gx}
+                                                      y1={gy}
+                                                      x2={gx}
+                                                      y2={gy - ow}
+                                                    />
+                                                    <path
+                                                      d={`M ${gx + ow},${gy} A ${ow},${ow} 0 0,1 ${gx},${gy - ow}`}
+                                                    />
+                                                  </g>
+                                                ) : (
+                                                  <g
+                                                    stroke={wallColor}
+                                                    strokeWidth="1.2"
+                                                  >
+                                                    {[2, 5, 8].map((dy) => (
+                                                      <line
+                                                        key={dy}
+                                                        x1={gx + 2}
+                                                        y1={gy + dy}
+                                                        x2={gx + ow - 2}
+                                                        y2={gy + dy}
+                                                      />
+                                                    ))}
+                                                  </g>
+                                                )}
+                                              </g>
+                                            );
+                                          }
+                                          if (op.wall === "e") {
+                                            const gx = room.width - 10;
+                                            const gy =
+                                              10 + pos * Math.max(ih - ow, 0);
+                                            return (
+                                              <g key={op.id}>
+                                                <rect
+                                                  x={gx}
+                                                  y={gy}
+                                                  width={10}
+                                                  height={ow}
+                                                  fill={floorColor}
+                                                />
+                                                {op.type === "door" ? (
+                                                  <g
+                                                    stroke={wallColor}
+                                                    strokeWidth="0.9"
+                                                    fill="none"
+                                                  >
+                                                    <line
+                                                      x1={gx}
+                                                      y1={gy}
+                                                      x2={gx - ow}
+                                                      y2={gy}
+                                                    />
+                                                    <path
+                                                      d={`M ${gx},${gy + ow} A ${ow},${ow} 0 0,0 ${gx - ow},${gy}`}
+                                                    />
+                                                  </g>
+                                                ) : (
+                                                  <g
+                                                    stroke={wallColor}
+                                                    strokeWidth="1.2"
+                                                  >
+                                                    {[2, 5, 8].map((dx) => (
+                                                      <line
+                                                        key={dx}
+                                                        x1={gx + dx}
+                                                        y1={gy + 2}
+                                                        x2={gx + dx}
+                                                        y2={gy + ow - 2}
+                                                      />
+                                                    ))}
+                                                  </g>
+                                                )}
+                                              </g>
+                                            );
+                                          }
+                                          // wall === "w"
+                                          const gy =
+                                            10 + pos * Math.max(ih - ow, 0);
+                                          return (
+                                            <g key={op.id}>
+                                              <rect
+                                                x={0}
+                                                y={gy}
+                                                width={10}
+                                                height={ow}
+                                                fill={floorColor}
+                                              />
+                                              {op.type === "door" ? (
+                                                <g
+                                                  stroke={wallColor}
+                                                  strokeWidth="0.9"
+                                                  fill="none"
+                                                >
+                                                  <line
+                                                    x1={10}
+                                                    y1={gy}
+                                                    x2={10 + ow}
+                                                    y2={gy}
+                                                  />
+                                                  <path
+                                                    d={`M ${10},${gy + ow} A ${ow},${ow} 0 0,1 ${10 + ow},${gy}`}
+                                                  />
+                                                </g>
+                                              ) : (
+                                                <g
+                                                  stroke={wallColor}
+                                                  strokeWidth="1.2"
+                                                >
+                                                  {[2, 5, 8].map((dx) => (
+                                                    <line
+                                                      key={dx}
+                                                      x1={dx}
+                                                      y1={gy + 2}
+                                                      x2={dx}
+                                                      y2={gy + ow - 2}
+                                                    />
+                                                  ))}
+                                                </g>
+                                              )}
+                                            </g>
+                                          );
+                                        })}
+                                      </svg>
+
+                                      {/* 드래그 핸들: 벽 위에 올려진 투명 div들 */}
+                                      {(room.openings ?? []).map((op) => {
+                                        const ow = op.width;
+                                        const isDraggingThis =
+                                          opDrag?.openingId === op.id &&
+                                          opDrag?.roomId === room.id;
+                                        const pos = isDraggingThis
+                                          ? opDrag!.curPos
+                                          : op.position;
+                                        // 핸들은 CSS border 영역(벽 두께 10px)에만 위치 — 방 내부로 침범 금지
+                                        let handleStyle: React.CSSProperties;
+                                        if (op.wall === "n") {
+                                          handleStyle = {
+                                            position: "absolute",
+                                            left: pos * Math.max(iw - ow, 0),
+                                            top: -10,
+                                            width: ow,
+                                            height: 10,
+                                            zIndex: 25,
+                                            cursor: isDraggingThis
+                                              ? "grabbing"
+                                              : "grab",
+                                          };
+                                        } else if (op.wall === "s") {
+                                          handleStyle = {
+                                            position: "absolute",
+                                            left: pos * Math.max(iw - ow, 0),
+                                            top: ih,
+                                            width: ow,
+                                            height: 10,
+                                            zIndex: 25,
+                                            cursor: isDraggingThis
+                                              ? "grabbing"
+                                              : "grab",
+                                          };
+                                        } else if (op.wall === "e") {
+                                          handleStyle = {
+                                            position: "absolute",
+                                            left: iw,
+                                            top: pos * Math.max(ih - ow, 0),
+                                            width: 10,
+                                            height: ow,
+                                            zIndex: 25,
+                                            cursor: isDraggingThis
+                                              ? "grabbing"
+                                              : "grab",
+                                          };
+                                        } else {
+                                          handleStyle = {
+                                            position: "absolute",
+                                            left: -10,
+                                            top: pos * Math.max(ih - ow, 0),
+                                            width: 10,
+                                            height: ow,
+                                            zIndex: 25,
+                                            cursor: isDraggingThis
+                                              ? "grabbing"
+                                              : "grab",
+                                          };
+                                        }
+                                        return (
+                                          <div
+                                            key={`handle-${op.id}`}
+                                            style={handleStyle}
+                                            onMouseDown={(e) => {
+                                              e.stopPropagation();
+                                              e.preventDefault();
+                                              setOpDrag({
+                                                roomId: room.id,
+                                                openingId: op.id,
+                                                wall: op.wall,
+                                                startPos: op.position,
+                                                startClient: {
+                                                  x: e.clientX,
+                                                  y: e.clientY,
+                                                },
+                                                roomW: room.width,
+                                                roomH: room.height,
+                                                opW: ow,
+                                                curPos: op.position,
+                                              });
+                                            }}
+                                          />
+                                        );
+                                      })}
+                                    </>
+                                  );
+                                })()}
+
+                              {/* 방 이름 바 (드래그 핸들) */}
+                              <div
+                                className="room-drag-handle"
                                 style={{
-                                  color: "rgba(255,255,255,0.55)",
-                                  fontSize: "15px",
-                                  lineHeight: 1,
-                                  background: "none",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  padding: "0 2px",
+                                  background: isActiveRoom
+                                    ? "#4F46E5"
+                                    : "#2c2c2c",
+                                  color: "white",
+                                  padding: "3px 8px",
+                                  fontSize: "10px",
+                                  fontWeight: 700,
+                                  cursor: "move",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  letterSpacing: "0.06em",
+                                  textTransform: "uppercase",
+                                  userSelect: "none",
+                                  transition: "background 150ms",
                                 }}
                               >
-                                ×
-                              </button>
-                            </div>
+                                <span>{room.name}</span>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteRoomWithContents(room.id);
+                                  }}
+                                  style={{
+                                    color: "rgba(255,255,255,0.55)",
+                                    fontSize: "15px",
+                                    lineHeight: 1,
+                                    background: "none",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    padding: "0 2px",
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </div>
 
-                            {/* 바닥 영역 — 수납공간 박스 표시 */}
-                            <div
-                              style={{
-                                position: "relative",
-                                height: "calc(100% - 22px)",
-                                overflow: "hidden",
-                              }}
-                            >
-                              {getLocationsByRoomId(room.id).map((loc) => {
-                                const isLocSelected = selectedLocationId === loc.id;
-                                const itemCnt = allItems.filter((i) => i.location_id === loc.id).length;
-                                return (
-                                  <div
-                                    key={loc.id}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setActiveRoomId(room.id);
-                                      setSelectedLocationId(loc.id);
-                                      fetchItems(loc.id);
-                                    }}
-                                    style={{
-                                      position: "absolute",
-                                      left: loc.x,
-                                      top: loc.y,
-                                      width: loc.width,
-                                      height: loc.height,
-                                      zIndex: 30,
-                                      background: isLocSelected ? "rgba(79,70,229,0.25)" : "rgba(255,255,255,0.55)",
-                                      border: `1.5px solid ${isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.25)"}`,
-                                      borderRadius: 2,
-                                      boxSizing: "border-box",
-                                      cursor: "pointer",
-                                      display: "flex",
-                                      flexDirection: "column",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      gap: 1,
-                                      userSelect: "none",
-                                      transition: "border-color 120ms, background 120ms",
-                                    }}
-                                  >
-                                    <span style={{ fontSize: "9px", fontWeight: 700, color: isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.6)", lineHeight: 1.2, textAlign: "center", padding: "0 2px" }}>
-                                      {loc.name}
-                                    </span>
-                                    {itemCnt > 0 && (
-                                      <span style={{ fontSize: "8px", color: isLocSelected ? "#6d60f0" : "rgba(0,0,0,0.35)" }}>
-                                        {itemCnt}개
+                              {/* 바닥 영역 — 수납공간 박스 표시 */}
+                              <div
+                                style={{
+                                  position: "relative",
+                                  height: "calc(100% - 22px)",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                {getLocationsByRoomId(room.id).map((loc) => {
+                                  const isLocSelected =
+                                    selectedLocationId === loc.id;
+                                  const itemCnt = allItems.filter(
+                                    (i) => i.location_id === loc.id,
+                                  ).length;
+                                  return (
+                                    <div
+                                      key={loc.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveRoomId(room.id);
+                                        setSelectedLocationId(loc.id);
+                                        fetchItems(loc.id);
+                                      }}
+                                      style={{
+                                        position: "absolute",
+                                        left: loc.x,
+                                        top: loc.y,
+                                        width: loc.width,
+                                        height: loc.height,
+                                        zIndex: 30,
+                                        background: isLocSelected
+                                          ? "rgba(79,70,229,0.25)"
+                                          : "rgba(255,255,255,0.55)",
+                                        border: `1.5px solid ${isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.25)"}`,
+                                        borderRadius: 2,
+                                        boxSizing: "border-box",
+                                        cursor: "pointer",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        gap: 1,
+                                        userSelect: "none",
+                                        transition:
+                                          "border-color 120ms, background 120ms",
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          fontSize: "9px",
+                                          fontWeight: 700,
+                                          color: isLocSelected
+                                            ? "#4F46E5"
+                                            : "rgba(0,0,0,0.6)",
+                                          lineHeight: 1.2,
+                                          textAlign: "center",
+                                          padding: "0 2px",
+                                        }}
+                                      >
+                                        {loc.name}
                                       </span>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                      {itemCnt > 0 && (
+                                        <span
+                                          style={{
+                                            fontSize: "8px",
+                                            color: isLocSelected
+                                              ? "#6d60f0"
+                                              : "rgba(0,0,0,0.35)",
+                                          }}
+                                        >
+                                          {itemCnt}개
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
-                          </div>
-                        </Rnd>
-                      );
-                    })}
-                  </div>
+                          </Rnd>
+                        );
+                      })}
+                    </div>
                   </div>
                 </Fragment>
               )}
             </div>
-
           </section>
         </div>
       </div>
