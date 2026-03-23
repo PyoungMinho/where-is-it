@@ -347,13 +347,16 @@ function Room3D({
     if (orbitRef?.current) orbitRef.current.enabled = true;
   }, [draggingLocId, tempPos, locations, rw, rd, onMoveLocation, orbitRef]);
 
+  const isHallway = room.room_type === "hallway";
   const wallColor = isActive ? "#3d3d3d" : "#2c2c2c";
-  const floorColor = isActive ? "#fff5e8" : "#f0e3c8";
+  const floorColor = isHallway
+    ? (isActive ? "#e8e4de" : "#d8d4cc")
+    : (isActive ? "#fff5e8" : "#f0e3c8");
   const accentColor = isActive ? "#4F46E5" : "#2c2c2c";
 
   return (
     <group position={[rx, 0, rz]}>
-      {/* 바닥 (드래그 추적용 큰 hitbox 포함) */}
+      {/* 바닥 */}
       <mesh receiveShadow position={[0, 0, 0]}
         onPointerMove={(e) => handleFloorMove(e.point.x, e.point.z)}
         onPointerUp={handleFloorUp}
@@ -361,16 +364,25 @@ function Room3D({
         onClick={(e) => { if (!draggingLocId) { e.stopPropagation(); onSelectRoom(room.id); } }}
       >
         <boxGeometry args={[rw, FLOOR_THICKNESS, rd]} />
-        <meshStandardMaterial color={floorColor} roughness={0.85} />
+        <meshStandardMaterial color={floorColor} roughness={isHallway ? 0.6 : 0.85} />
       </mesh>
-      <mesh receiveShadow position={[0, FLOOR_THICKNESS / 2 + 0.001, 0]}
-        onPointerMove={(e) => handleFloorMove(e.point.x, e.point.z)}
-        onPointerUp={handleFloorUp}
-        onClick={(e) => { if (!draggingLocId) { e.stopPropagation(); onSelectRoom(room.id); } }}
-      >
-        <boxGeometry args={[rw - WALL_THICKNESS * 2, 0.001, rd - WALL_THICKNESS * 2]} />
-        <meshStandardMaterial color={isActive ? "#f5e8d0" : "#e8d5b0"} roughness={0.9} />
-      </mesh>
+      {/* 바닥 타일선 (복도) */}
+      {isHallway && (
+        <mesh position={[0, FLOOR_THICKNESS / 2 + 0.001, 0]}>
+          <boxGeometry args={[rw, 0.001, rd]} />
+          <meshStandardMaterial color="#c8c4bc" roughness={0.5} wireframe />
+        </mesh>
+      )}
+      {!isHallway && (
+        <mesh receiveShadow position={[0, FLOOR_THICKNESS / 2 + 0.001, 0]}
+          onPointerMove={(e) => handleFloorMove(e.point.x, e.point.z)}
+          onPointerUp={handleFloorUp}
+          onClick={(e) => { if (!draggingLocId) { e.stopPropagation(); onSelectRoom(room.id); } }}
+        >
+          <boxGeometry args={[rw - WALL_THICKNESS * 2, 0.001, rd - WALL_THICKNESS * 2]} />
+          <meshStandardMaterial color={isActive ? "#f5e8d0" : "#e8d5b0"} roughness={0.9} />
+        </mesh>
+      )}
 
       {isActive && (
         <mesh position={[0, FLOOR_THICKNESS + 0.005, 0]}>
@@ -379,8 +391,43 @@ function Room3D({
         </mesh>
       )}
 
-      {/* 4면 벽 (문/창문 갭 포함) */}
-      {(["n", "s", "w", "e"] as const).map((wt) => {
+      {/* 복도: 낮은 가이드 레일만 렌더링 */}
+      {isHallway && (
+        <>
+          {(["n", "s", "w", "e"] as const).map((wt) => {
+            const isNS = wt === "n" || wt === "s";
+            const len = isNS ? rw : rd;
+            const railH = 0.12;
+            const wallPos = wt === "n" ? -rd / 2 + WALL_THICKNESS / 2
+              : wt === "s" ? rd / 2 - WALL_THICKNESS / 2
+              : wt === "w" ? -rw / 2 + WALL_THICKNESS / 2
+              : rw / 2 - WALL_THICKNESS / 2;
+            const pos: [number, number, number] = isNS ? [0, railH / 2, wallPos] : [wallPos, railH / 2, 0];
+            const sz: [number, number, number] = isNS ? [len, railH, WALL_THICKNESS] : [WALL_THICKNESS, railH, len];
+            return (
+              <mesh key={wt} castShadow position={pos}
+                onClick={(e) => { e.stopPropagation(); onSelectRoom(room.id); }}
+              >
+                <boxGeometry args={sz} />
+                <meshStandardMaterial color={isActive ? "#6b7280" : "#9ca3af"} roughness={0.5} />
+              </mesh>
+            );
+          })}
+          <Text
+            position={[0, 0.25, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            fontSize={0.16}
+            color={isActive ? "#4F46E5" : "#6b7280"}
+            anchorX="center" anchorY="middle"
+            outlineWidth={0.01} outlineColor="#fff"
+          >
+            {room.name}
+          </Text>
+        </>
+      )}
+
+      {/* 4면 벽 (방만, 문/창문 갭 포함) */}
+      {!isHallway && (["n", "s", "w", "e"] as const).map((wt) => {
         const isNS = wt === "n" || wt === "s";
         const len = isNS ? rw : rd;
         const wallPos = wt === "n" ? -rd / 2 + WALL_THICKNESS / 2
@@ -461,16 +508,18 @@ function Room3D({
         );
       })}
 
-      <Text
-        position={[0, WALL_HEIGHT + 0.2, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        fontSize={0.22}
-        color={isActive ? "#c7d2fe" : "#ffffff"}
-        anchorX="center" anchorY="middle"
-        outlineWidth={0.015} outlineColor="#000"
-      >
-        {room.name}
-      </Text>
+      {!isHallway && (
+        <Text
+          position={[0, WALL_HEIGHT + 0.2, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          fontSize={0.22}
+          color={isActive ? "#c7d2fe" : "#ffffff"}
+          anchorX="center" anchorY="middle"
+          outlineWidth={0.015} outlineColor="#000"
+        >
+          {room.name}
+        </Text>
+      )}
 
       {/* 수납공간 */}
       {locations.filter(l => l.room_id === room.id).map(loc => {

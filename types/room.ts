@@ -6,6 +6,8 @@ export type Opening = {
   width: number;    // 픽셀 단위 (문 ~40, 창문 ~30)
 };
 
+export type RoomType = "room" | "hallway";
+
 export type Room = {
   id: string;
   home_id: string;
@@ -17,4 +19,5 @@ export type Room = {
   color: string;
   created_at: string;
   openings: Opening[];
+  room_type?: RoomType;
 };

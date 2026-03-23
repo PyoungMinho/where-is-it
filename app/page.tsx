@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { Rnd } from "react-rnd";
 import { supabase } from "@/lib/supabase";
-import type { Room, Opening } from "@/types/room";
+import type { Room, Opening, RoomType } from "@/types/room";
 import type { Location } from "@/types/location";
 import type { Item } from "@/types/item";
 
@@ -24,6 +24,7 @@ export default function HomePage() {
 
   const [rooms, setRooms] = useState<Room[]>([]);
   const [newRoomName, setNewRoomName] = useState("");
+  const [newRoomType, setNewRoomType] = useState<RoomType>("room");
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
 
   const [locations, setLocations] = useState<Location[]>([]);
@@ -187,15 +188,17 @@ export default function HomePage() {
       return;
     }
 
+    const isHallway = newRoomType === "hallway";
     const { error } = await supabase.from("rooms").insert([
       {
         home_id: selectedHomeId,
         name: newRoomName,
         x: 20 + rooms.length * 20,
         y: 20 + rooms.length * 20,
-        width: 180,
-        height: 140,
+        width: isHallway ? 80 : 180,
+        height: isHallway ? 200 : 140,
         color: "#3b82f6",
+        room_type: newRoomType,
       },
     ]);
 
@@ -719,11 +722,26 @@ export default function HomePage() {
                 </div>
                 <p className="text-xs text-slate-400 mb-4">방을 만들고 오른쪽 캔버스에서 위치와 크기를 조정하세요.</p>
                 <div className="space-y-2">
+                  {/* 방 / 복도 타입 선택 */}
+                  <div className="flex rounded-lg border border-[#E5E7EB] overflow-hidden text-xs font-medium">
+                    <button
+                      onClick={() => setNewRoomType("room")}
+                      className={`flex-1 py-2 transition ${newRoomType === "room" ? "bg-[#1c1c1e] text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                    >
+                      🏠 방
+                    </button>
+                    <button
+                      onClick={() => setNewRoomType("hallway")}
+                      className={`flex-1 py-2 transition border-l border-[#E5E7EB] ${newRoomType === "hallway" ? "bg-[#4b5563] text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}
+                    >
+                      〰️ 복도
+                    </button>
+                  </div>
                   <input
                     value={newRoomName}
                     onChange={(e) => setNewRoomName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-                    placeholder="예: 거실, 주방, 안방"
+                    placeholder={newRoomType === "hallway" ? "예: 복도, 현관, 계단" : "예: 거실, 주방, 안방"}
                     className="w-full rounded-lg border border-[#E5E7EB] bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
                   />
                   <button
@@ -731,7 +749,7 @@ export default function HomePage() {
                     className="inline-flex w-full items-center justify-center rounded-lg bg-[#4F46E5] px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-[#4338CA] disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={!selectedHomeId}
                   >
-                    방 추가하기
+                    {newRoomType === "hallway" ? "복도 추가하기" : "방 추가하기"}
                   </button>
                 </div>
 
@@ -742,7 +760,9 @@ export default function HomePage() {
                         key={room.id}
                         className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700"
                       >
-                        <span className="font-medium">{room.name}</span>
+                        <span className="font-medium">
+                          {room.room_type === "hallway" ? "〰️ " : ""}{room.name}
+                        </span>
                         <button
                           type="button"
                           onClick={() => deleteRoomWithContents(room.id)}
@@ -1185,20 +1205,22 @@ export default function HomePage() {
                           }}
                           style={{ boxSizing: "border-box" }}
                         >
-                          {/* 방: 도면 스타일 — 두꺼운 벽 + 따뜻한 바닥 */}
+                          {/* 방/복도: 도면 스타일 */}
                           <div
                             onMouseDown={() => setActiveRoomId(room.id)}
                             style={{
                               width: "100%",
                               height: "100%",
-                              background: "#f5ead6",
-                              border: `10px solid ${isActiveRoom ? "#4F46E5" : "#2c2c2c"}`,
+                              background: room.room_type === "hallway"
+                                ? "repeating-linear-gradient(-45deg, #ddd6c8 0, #ddd6c8 1.5px, #ede8e0 1.5px, #ede8e0 8px)"
+                                : "#f5ead6",
+                              border: `${room.room_type === "hallway" ? 6 : 10}px solid ${isActiveRoom ? "#4F46E5" : room.room_type === "hallway" ? "#6b7280" : "#2c2c2c"}`,
                               boxSizing: "border-box",
                               borderRadius: 2,
                               position: "relative",
                               boxShadow: isActiveRoom
-                                ? "0 0 0 2px rgba(79,70,229,0.5), 4px 6px 16px rgba(0,0,0,0.6)"
-                                : "4px 6px 16px rgba(0,0,0,0.5)",
+                                ? "0 0 0 2px rgba(79,70,229,0.5), 4px 6px 16px rgba(0,0,0,0.4)"
+                                : "2px 4px 10px rgba(0,0,0,0.3)",
                               transition: "border-color 150ms, box-shadow 150ms",
                             }}
                           >
