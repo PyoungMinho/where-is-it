@@ -118,6 +118,7 @@ type Props = {
   allItems: Item[];
   activeRoomId: string | null;
   selectedLocationId: string | null;
+  highlightLocationId?: string | null;
   onSelectRoom: (id: string) => void;
   onSelectLocation: (id: string) => void;
   onMoveLocation?: (id: string, x: number, y: number) => void;
@@ -126,10 +127,10 @@ type Props = {
 
 // ── 벽면 설치 가구 ─────────────────────────────────────────────
 function WallFurniture3D({
-  loc, rw, rd, isSelected, itemCount, onClick,
+  loc, rw, rd, isSelected, isHighlighted, itemCount, onClick,
 }: {
   loc: Location; rw: number; rd: number;
-  isSelected: boolean; itemCount: number; onClick: () => void;
+  isSelected: boolean; isHighlighted: boolean; itemCount: number; onClick: () => void;
 }) {
   const wallType = getWallType(loc.type);
   const fw = toW(loc.width);
@@ -145,8 +146,8 @@ function WallFurniture3D({
   else if (wallType === "wall_e") { posX = rw / 2 - WALL_THICKNESS - depth / 2; posZ = posAlong; }
   else if (wallType === "wall_w") { posX = -rw / 2 + WALL_THICKNESS + depth / 2; posZ = posAlong; }
 
-  const bodyColor = isSelected ? "#4F46E5" : "#7a5c3a";
-  const topColor = isSelected ? "#6d60f0" : "#a07c52";
+  const bodyColor = isHighlighted ? "#f59e0b" : isSelected ? "#4F46E5" : "#7a5c3a";
+  const topColor = isHighlighted ? "#fbbf24" : isSelected ? "#6d60f0" : "#a07c52";
 
   return (
     <group position={[posX, mountHeight, posZ]}>
@@ -157,7 +158,7 @@ function WallFurniture3D({
         onClick={(e) => { e.stopPropagation(); onClick(); }}
       >
         <boxGeometry args={[fw * 0.92, h, depth]} />
-        <meshStandardMaterial color={bodyColor} roughness={0.6} metalness={0.05} />
+        <meshStandardMaterial color={bodyColor} roughness={0.6} metalness={0.05} emissive={isHighlighted ? "#f59e0b" : isSelected ? "#4F46E5" : "#000000"} emissiveIntensity={isHighlighted ? 0.4 : isSelected ? 0.15 : 0} />
       </mesh>
       {/* 윗면 */}
       <mesh position={[0, h + 0.005, 0]}>
@@ -205,11 +206,11 @@ function WallFurniture3D({
 
 // ── 바닥 가구 (드래그 가능) ─────────────────────────────────────
 function FloorFurniture3D({
-  x, z, w, d, name, isSelected, itemCount, onClick, onDragStart, isDraggingThis,
+  x, z, w, d, name, isSelected, isHighlighted, itemCount, onClick, onDragStart, isDraggingThis,
   onMove, onUp,
 }: {
   x: number; z: number; w: number; d: number; name: string;
-  isSelected: boolean; itemCount: number; isDraggingThis: boolean;
+  isSelected: boolean; isHighlighted: boolean; itemCount: number; isDraggingThis: boolean;
   onClick: () => void;
   onDragStart: (grabX: number, grabZ: number) => void;
   onMove?: (x: number, z: number) => void;
@@ -218,9 +219,9 @@ function FloorFurniture3D({
   const meshRef = useRef<Mesh>(null);
   const h = Math.max(FURNITURE_HEIGHT, Math.min(w, d) * 0.8);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (meshRef.current) {
-      const target = isSelected ? 1.1 : 1.0;
+      const target = isHighlighted ? 1.15 : isSelected ? 1.1 : 1.0;
       meshRef.current.scale.y += (target - meshRef.current.scale.y) * 0.1;
     }
   });
@@ -254,8 +255,10 @@ function FloorFurniture3D({
       >
         <boxGeometry args={[w * 0.92, h, d * 0.92]} />
         <meshStandardMaterial
-          color={isDraggingThis ? "#7c6fef" : isSelected ? "#4F46E5" : "#9b7a52"}
+          color={isHighlighted ? "#f59e0b" : isDraggingThis ? "#7c6fef" : isSelected ? "#4F46E5" : "#9b7a52"}
           roughness={0.6} metalness={0.05}
+          emissive={isHighlighted ? "#f59e0b" : isSelected ? "#4F46E5" : "#000000"}
+          emissiveIntensity={isHighlighted ? 0.4 : isSelected ? 0.15 : 0}
         />
       </mesh>
       <mesh position={[0, h + FLOOR_THICKNESS + 0.005, 0]}>
@@ -295,12 +298,13 @@ function FloorFurniture3D({
 
 // ── 방 ────────────────────────────────────────────────────────
 function Room3D({
-  room, isActive, locations, allItems, selectedLocationId,
+  room, isActive, locations, allItems, selectedLocationId, highlightLocationId,
   onSelectRoom, onSelectLocation, onMoveLocation, orbitRef,
 }: {
   room: Room; isActive: boolean;
   locations: Location[]; allItems: Item[];
   selectedLocationId: string | null;
+  highlightLocationId?: string | null;
   onSelectRoom: (id: string) => void;
   onSelectLocation: (id: string) => void;
   onMoveLocation?: (id: string, x: number, y: number) => void;
@@ -535,6 +539,7 @@ function Room3D({
               rw={rw}
               rd={rd}
               isSelected={isSelected}
+              isHighlighted={highlightLocationId === loc.id}
               itemCount={itemCount}
               onClick={() => onSelectLocation(loc.id)}
             />
@@ -553,6 +558,7 @@ function Room3D({
             x={lx} z={lz} w={lw} d={ld}
             name={loc.name}
             isSelected={isSelected}
+            isHighlighted={highlightLocationId === loc.id}
             itemCount={itemCount}
             isDraggingThis={isDraggingThis}
             onClick={() => onSelectLocation(loc.id)}
@@ -578,7 +584,7 @@ function Ground() {
 // ── 메인 씬 ───────────────────────────────────────────────────
 export default function FloorPlan3D({
   rooms, locations, allItems,
-  activeRoomId, selectedLocationId,
+  activeRoomId, selectedLocationId, highlightLocationId,
   onSelectRoom, onSelectLocation, onMoveLocation,
 }: Props) {
   const orbitRef = useRef<OrbitControlsImpl | null>(null);
@@ -591,7 +597,7 @@ export default function FloorPlan3D({
   return (
     <Canvas
       shadows
-      frameloop="demand"
+      frameloop={highlightLocationId ? "always" : "demand"}
       camera={{ position: [cx + 8, 10, cz + 8], fov: 45 }}
       style={{ width: "100%", height: "100%", background: "transparent" }}
       gl={{ antialias: true, powerPreference: "default" }}
@@ -625,6 +631,7 @@ export default function FloorPlan3D({
           locations={locations}
           allItems={allItems}
           selectedLocationId={selectedLocationId}
+          highlightLocationId={highlightLocationId}
           onSelectRoom={onSelectRoom}
           onSelectLocation={onSelectLocation}
           onMoveLocation={onMoveLocation}
