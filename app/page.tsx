@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, useCallback } from "react";
+import { Fragment, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { Rnd } from "react-rnd";
 import { supabase } from "@/lib/supabase";
+import { useI18n } from "@/lib/i18n";
 import type { Room, Opening, RoomType } from "@/types/room";
 import type { Location } from "@/types/location";
 import type { Item } from "@/types/item";
@@ -14,6 +15,12 @@ import EmptyState from "./components/EmptyState";
 import SearchPanel from "./components/SearchPanel";
 import OnboardingGuide from "./components/OnboardingGuide";
 import ItemForm from "./components/ItemForm";
+import LanguageSwitcher from "./components/LanguageSwitcher";
+import ThemeToggle from "./components/ThemeToggle";
+import Dashboard from "./components/Dashboard";
+import MoveItemModal from "./components/MoveItemModal";
+import BatchAddForm from "./components/BatchAddForm";
+import TemplateSelector from "./components/TemplateSelector";
 
 const FloorPlan3D = dynamic(() => import("./components/FloorPlan3D"), {
   ssr: false,
@@ -25,7 +32,16 @@ type Home = {
   created_at: string;
 };
 
+/* ── Undo/Redo system ── */
+type UndoAction = {
+  label: string;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
+};
+
 export default function HomePage() {
+  const { t } = useI18n();
+
   /* ── state ── */
   const [homes, setHomes] = useState<Home[]>([]);
   const [selectedHomeId, setSelectedHomeId] = useState<string | null>(null);
@@ -70,22 +86,99 @@ export default function HomePage() {
   const [editingHomeId, setEditingHomeId] = useState<string | null>(null);
   const [editingHomeName, setEditingHomeName] = useState("");
 
+  // Location drag state for 2D mode
+  const [locDrag, setLocDrag] = useState<{
+    locId: string;
+    roomId: string;
+    startX: number;
+    startY: number;
+    startClientX: number;
+    startClientY: number;
+  } | null>(null);
+
+  // New feature state
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [moveItem, setMoveItem] = useState<Item | null>(null);
+  const [batchAddOpen, setBatchAddOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<"name" | "date" | "quantity" | "category">("date");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
+  // Undo/Redo
+  const [undoStack, setUndoStack] = useState<UndoAction[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoAction[]>([]);
+
+  const mainContentRef = useRef<HTMLDivElement>(null);
+
   /* ── derived ── */
   const selectedHome = homes.find((h) => h.id === selectedHomeId);
   const activeRoom = rooms.find((r) => r.id === activeRoomId);
   const selectedLocation = locations.find((l) => l.id === selectedLocationId);
 
-  /* ── Cmd+K shortcut ── */
+  // Sorted items
+  const sortedItems = useMemo(() => {
+    const sorted = [...items];
+    switch (sortBy) {
+      case "name":
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "quantity":
+        sorted.sort((a, b) => b.quantity - a.quantity);
+        break;
+      case "category":
+        sorted.sort((a, b) => a.category.localeCompare(b.category));
+        break;
+      case "date":
+      default:
+        sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        break;
+    }
+    return sorted;
+  }, [items, sortBy]);
+
+  /* ── Cmd+K shortcut + Undo/Redo ── */
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setSearchOpen((prev) => !prev);
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key === "y" || (e.shiftKey && e.key === "z"))) {
+        e.preventDefault();
+        handleRedo();
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, []);
+  }, [undoStack, redoStack]);
+
+  /* ── Undo/Redo handlers ── */
+  const pushUndo = (action: UndoAction) => {
+    setUndoStack((prev) => [...prev.slice(-19), action]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = async () => {
+    const action = undoStack[undoStack.length - 1];
+    if (!action) return;
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, action]);
+    await action.undo();
+    showToast(t.undoAction(action.label));
+  };
+
+  const handleRedo = async () => {
+    const action = redoStack[redoStack.length - 1];
+    if (!action) return;
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev, action]);
+    await action.redo();
+    showToast(t.redoAction(action.label));
+  };
 
   /* ── data fetching ── */
   const fetchHomes = async () => {
@@ -148,12 +241,12 @@ export default function HomePage() {
 
   /* ── CRUD ── */
   const addHome = async () => {
-    const name = newHomeName.trim() || "우리집";
+    const name = newHomeName.trim() || t.defaultHomeName;
     const { error } = await supabase.from("homes").insert([{ name }]);
     if (error) { console.error("home insert error:", error); return; }
     setNewHomeName("");
     await fetchHomes();
-    showToast(`'${name}' 집이 추가되었어요`);
+    showToast(t.homeAdded(name));
   };
 
   const renameHome = async (id: string, name: string) => {
@@ -165,8 +258,8 @@ export default function HomePage() {
   };
 
   const addRoom = async () => {
-    if (!selectedHomeId) { showToast("먼저 집을 만들어야 해요"); return; }
-    if (!newRoomName.trim()) { showToast("방 이름을 입력해주세요"); return; }
+    if (!selectedHomeId) { showToast(t.needHomeFirst); return; }
+    if (!newRoomName.trim()) { showToast(t.enterRoomName); return; }
     const isHallway = newRoomType === "hallway";
     const { error } = await supabase.from("rooms").insert([{
       home_id: selectedHomeId,
@@ -181,15 +274,15 @@ export default function HomePage() {
     if (error) { console.error("room insert error:", error); return; }
     setNewRoomName("");
     await fetchRooms(selectedHomeId);
-    showToast(`'${newRoomName}' 방이 추가되었어요`);
+    showToast(t.roomAdded(newRoomName));
   };
 
   const addLocation = async () => {
-    if (rooms.length === 0) { showToast("먼저 방을 만들어야 해요"); return; }
-    if (!activeRoomId) { showToast("수납공간을 배치할 방을 먼저 선택해주세요"); return; }
-    if (!newLocationName.trim()) { showToast("수납공간 이름을 입력해주세요"); return; }
+    if (rooms.length === 0) { showToast(t.needRoomFirst); return; }
+    if (!activeRoomId) { showToast(t.selectRoomFirst); return; }
+    if (!newLocationName.trim()) { showToast(t.enterLocationName); return; }
     const targetRoom = rooms.find((r) => r.id === activeRoomId);
-    if (!targetRoom) { showToast("선택한 방을 찾을 수 없어요"); return; }
+    if (!targetRoom) { showToast(t.roomNotFound); return; }
     const locationsInRoom = locations.filter((l) => l.room_id === targetRoom.id);
     const { error } = await supabase.from("locations").insert([{
       room_id: targetRoom.id,
@@ -204,31 +297,87 @@ export default function HomePage() {
     if (error) { console.error("location insert error:", error); return; }
     setNewLocationName("");
     await fetchLocations(rooms.map((r) => r.id));
-    showToast(`'${newLocationName}' 수납공간이 추가되었어요`);
+    showToast(t.locationAdded(newLocationName));
   };
 
   const addItem = async (data: { name: string; category: string; quantity: number; memo: string }) => {
-    if (!selectedLocationId) { showToast("먼저 수납공간을 선택해주세요"); return; }
-    const { error } = await supabase.from("items").insert([{
+    if (!selectedLocationId) { showToast(t.selectLocationFirst); return; }
+    const { error, data: inserted } = await supabase.from("items").insert([{
       location_id: selectedLocationId,
       name: data.name,
       category: data.category,
       memo: data.memo,
       quantity: data.quantity,
       color: "#f59e0b",
-    }]);
+    }]).select();
     if (error) { console.error("item insert error:", error); return; }
     await fetchItems(selectedLocationId);
     await refreshAllItems(locations);
-    showToast(`'${data.name}' 등록 완료!`);
+    showToast(t.itemRegistered(data.name));
+
+    // Push undo action
+    if (inserted && inserted[0]) {
+      const itemId = inserted[0].id;
+      const locId = selectedLocationId;
+      pushUndo({
+        label: data.name,
+        undo: async () => {
+          await supabase.from("items").delete().eq("id", itemId);
+          if (locId) await fetchItems(locId);
+          await refreshAllItems(locations);
+        },
+        redo: async () => {
+          await supabase.from("items").insert([{
+            location_id: locId,
+            name: data.name,
+            category: data.category,
+            memo: data.memo,
+            quantity: data.quantity,
+            color: "#f59e0b",
+          }]);
+          if (locId) await fetchItems(locId);
+          await refreshAllItems(locations);
+        },
+      });
+    }
   };
 
   const deleteItem = async (itemId: string) => {
+    const item = items.find((i) => i.id === itemId);
     const { error } = await supabase.from("items").delete().eq("id", itemId);
     if (error) { console.error("item delete error:", error); return; }
     if (selectedLocationId) await fetchItems(selectedLocationId);
     await refreshAllItems(locations);
-    showToast("물건이 삭제되었어요");
+    showToast(t.itemDeleted);
+
+    // Push undo action
+    if (item) {
+      const locId = selectedLocationId;
+      pushUndo({
+        label: item.name,
+        undo: async () => {
+          await supabase.from("items").insert([{
+            location_id: item.location_id,
+            name: item.name,
+            category: item.category,
+            memo: item.memo,
+            quantity: item.quantity,
+            color: item.color,
+          }]);
+          if (locId) await fetchItems(locId);
+          await refreshAllItems(locations);
+        },
+        redo: async () => {
+          // Can't redo exact delete since ID changed, just delete by name+location
+          const { data } = await supabase.from("items").select("id").eq("location_id", item.location_id).eq("name", item.name).limit(1);
+          if (data && data[0]) {
+            await supabase.from("items").delete().eq("id", data[0].id);
+          }
+          if (locId) await fetchItems(locId);
+          await refreshAllItems(locations);
+        },
+      });
+    }
   };
 
   const updateItemName = async (itemId: string, name: string) => {
@@ -256,6 +405,16 @@ export default function HomePage() {
   };
 
   const handleOpDragMove = (e: React.MouseEvent) => {
+    if (locDrag) {
+      const dx = (e.clientX - locDrag.startClientX) / zoom;
+      const dy = (e.clientY - locDrag.startClientY) / zoom;
+      const newX = Math.max(0, locDrag.startX + dx);
+      const newY = Math.max(0, locDrag.startY + dy);
+      setLocations((prev) =>
+        prev.map((l) => (l.id === locDrag.locId ? { ...l, x: newX, y: newY } : l))
+      );
+      return;
+    }
     if (!opDrag) return;
     const isNS = opDrag.wall === "n" || opDrag.wall === "s";
     const innerLen = isNS ? opDrag.roomW - 20 : opDrag.roomH - 20;
@@ -268,6 +427,14 @@ export default function HomePage() {
   };
 
   const handleOpDragEnd = () => {
+    if (locDrag) {
+      const loc = locations.find((l) => l.id === locDrag.locId);
+      if (loc) {
+        void moveLocation(locDrag.locId, loc.x, loc.y);
+      }
+      setLocDrag(null);
+      return;
+    }
     if (!opDrag) return;
     const room = rooms.find((r) => r.id === opDrag.roomId);
     if (room) {
@@ -316,7 +483,7 @@ export default function HomePage() {
 
   const deleteSelectedLocation = async () => {
     if (!selectedLocationId) return;
-    const confirmDelete = window.confirm("이 수납공간과 그 안의 물건들을 모두 삭제할까요?");
+    const confirmDelete = window.confirm(t.confirmDeleteLocation);
     if (!confirmDelete) return;
     const locationId = selectedLocationId;
     const { error: itemsError } = await supabase.from("items").delete().eq("location_id", locationId);
@@ -326,13 +493,13 @@ export default function HomePage() {
     setSelectedLocationId(null);
     setItems([]);
     await fetchLocations(rooms.map((r) => r.id));
-    showToast("수납공간이 삭제되었어요");
+    showToast(t.locationDeleted);
   };
 
   const deleteRoomWithContents = async (roomId: string) => {
     const room = rooms.find((r) => r.id === roomId);
     if (!room) return;
-    const confirmDelete = window.confirm(`"${room.name}" 방과 그 안의 수납공간/물건을 모두 삭제할까요?`);
+    const confirmDelete = window.confirm(t.confirmDeleteRoom(room.name));
     if (!confirmDelete) return;
     const roomLocations = locations.filter((l) => l.room_id === roomId);
     const locationIds = roomLocations.map((l) => l.id);
@@ -357,6 +524,55 @@ export default function HomePage() {
   };
 
   const getLocationsByRoomId = (roomId: string) => locations.filter((l) => l.room_id === roomId);
+
+  /* ── Move item handler ── */
+  const handleMoveItem = async (itemId: string, newLocationId: string) => {
+    const { error } = await supabase.from("items").update({ location_id: newLocationId }).eq("id", itemId);
+    if (error) { console.error("move item error:", error); return; }
+    const destLoc = locations.find((l) => l.id === newLocationId);
+    const item = items.find((i) => i.id === itemId);
+    if (selectedLocationId) await fetchItems(selectedLocationId);
+    await refreshAllItems(locations);
+    if (item && destLoc) {
+      showToast(t.itemMoved(item.name, destLoc.name));
+    }
+  };
+
+  /* ── Batch add handler ── */
+  const handleBatchAdd = async (batchItems: { name: string; category: string; quantity: number; memo: string }[]) => {
+    if (!selectedLocationId) return;
+    const inserts = batchItems.map((item) => ({
+      location_id: selectedLocationId,
+      name: item.name,
+      category: item.category,
+      memo: item.memo,
+      quantity: item.quantity,
+      color: "#f59e0b",
+    }));
+    const { error } = await supabase.from("items").insert(inserts);
+    if (error) { console.error("batch insert error:", error); return; }
+    await fetchItems(selectedLocationId);
+    await refreshAllItems(locations);
+    showToast(t.batchAddComplete(batchItems.length));
+  };
+
+  /* ── Template apply handler ── */
+  const handleApplyTemplate = async (templateRooms: { name: string; type: "room" | "hallway"; width: number; height: number; x: number; y: number }[]) => {
+    if (!selectedHomeId) return;
+    const inserts = templateRooms.map((r) => ({
+      home_id: selectedHomeId,
+      name: r.name,
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
+      color: "#3b82f6",
+      room_type: r.type,
+    }));
+    const { error } = await supabase.from("rooms").insert(inserts);
+    if (error) { console.error("template apply error:", error); return; }
+    await fetchRooms(selectedHomeId);
+  };
 
   /* ── search result handler ── */
   const handleSearchSelect = useCallback((item: Item, location: Location, room: Room) => {
@@ -394,9 +610,23 @@ export default function HomePage() {
     fetchItems(selectedLocationId);
   }, [selectedLocationId]);
 
+  /* ── category labels ── */
+  const catLabels: Record<string, string> = {
+    electronics: t.catElectronics,
+    documents: t.catDocumentsShort,
+    daily: t.catDaily,
+    clothes: t.catClothes,
+    kitchen: t.catKitchenShort,
+    tools: t.catTools,
+    etc: t.catEtc,
+  };
+
   /* ── render ── */
   return (
-    <main className="min-h-screen bg-[#F9FAFB] text-slate-900">
+    <main className="min-h-screen" style={{ background: "var(--surface-secondary)", color: "var(--text-primary)" }}>
+      {/* Skip link for accessibility */}
+      <a href="#main-content" className="skip-link" tabIndex={0}>{t.skipToContent}</a>
+
       {/* 온보딩 */}
       <OnboardingGuide show={homes.length === 0} onDismiss={() => {}} />
 
@@ -413,14 +643,37 @@ export default function HomePage() {
       {/* 토스트 */}
       <ToastContainer />
 
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 sm:px-8 sm:py-8">
+      {/* Modals */}
+      {dashboardOpen && (
+        <Dashboard rooms={rooms} locations={locations} allItems={allItems} onClose={() => setDashboardOpen(false)} />
+      )}
+      {moveItem && (
+        <MoveItemModal
+          item={moveItem}
+          rooms={rooms}
+          locations={locations}
+          currentLocationId={moveItem.location_id}
+          onMove={handleMoveItem}
+          onClose={() => setMoveItem(null)}
+        />
+      )}
+      {batchAddOpen && (
+        <BatchAddForm onBatchAdd={handleBatchAdd} onClose={() => setBatchAddOpen(false)} />
+      )}
+      {templateOpen && (
+        <TemplateSelector onApply={handleApplyTemplate} onClose={() => setTemplateOpen(false)} />
+      )}
+
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-8 sm:py-8">
         {/* ── 헤더 ── */}
         <header className="mb-5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             {/* 모바일 햄버거 */}
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm md:hidden"
+              className="flex h-9 w-9 items-center justify-center rounded-lg shadow-sm md:hidden"
+              style={{ border: "1px solid var(--border)", background: "var(--surface)" }}
+              aria-label={t.openMenu}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <line x1="3" y1="6" x2="21" y2="6" />
@@ -429,27 +682,75 @@ export default function HomePage() {
               </svg>
             </button>
             <div>
-              <h1 className="text-xl font-bold tracking-tight sm:text-2xl">어디있니?</h1>
-              <p className="hidden text-xs text-slate-400 sm:block">
-                집 안 물건을 정리하고 쉽게 찾아보세요
+              <h1 className="text-xl font-bold tracking-tight sm:text-2xl" style={{ color: "var(--text-primary)" }}>{t.appTitle}</h1>
+              <p className="hidden text-xs sm:block" style={{ color: "var(--text-tertiary)" }}>
+                {t.appDesc}
               </p>
             </div>
           </div>
 
-          {/* 검색 버튼 */}
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-400 shadow-sm transition hover:border-slate-300 hover:shadow"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="11" cy="11" r="8" />
-              <path d="M21 21l-4.35-4.35" />
-            </svg>
-            <span className="hidden sm:inline">물건 검색...</span>
-            <kbd className="hidden rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 sm:inline">
-              ⌘K
-            </kbd>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Dashboard */}
+            <button
+              onClick={() => setDashboardOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition"
+              style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-secondary)" }}
+              title={t.showDashboard}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+                <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+              </svg>
+              <span className="hidden lg:inline">{t.dashboard}</span>
+            </button>
+
+            {/* Undo/Redo */}
+            <div className="hidden sm:flex items-center rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              <button
+                onClick={handleUndo}
+                disabled={undoStack.length === 0}
+                className="flex h-8 w-8 items-center justify-center transition disabled:opacity-30"
+                style={{ background: "var(--surface)", color: "var(--text-secondary)" }}
+                title={`${t.undo} (⌘Z)`}
+                aria-label={t.undo}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+              </button>
+              <button
+                onClick={handleRedo}
+                disabled={redoStack.length === 0}
+                className="flex h-8 w-8 items-center justify-center transition disabled:opacity-30"
+                style={{ background: "var(--surface)", color: "var(--text-secondary)", borderLeft: "1px solid var(--border)" }}
+                title={`${t.redo} (⌘⇧Z)`}
+                aria-label={t.redo}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                </svg>
+              </button>
+            </div>
+
+            <ThemeToggle />
+            <LanguageSwitcher />
+
+            {/* 검색 버튼 */}
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="flex items-center gap-2 rounded-full px-4 py-2 text-sm shadow-sm transition"
+              style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-tertiary)" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+              <span className="hidden sm:inline">{t.searchPlaceholder}</span>
+              <kbd className="hidden rounded px-1.5 py-0.5 text-[10px] font-mono sm:inline" style={{ border: "1px solid var(--border)", background: "var(--surface-secondary)", color: "var(--text-tertiary)" }}>
+                ⌘K
+              </kbd>
+            </button>
+          </div>
         </header>
 
         {/* ── 브레드크럼 ── */}
@@ -471,7 +772,7 @@ export default function HomePage() {
           />
         </div>
 
-        <div className="flex flex-1 flex-col gap-5 md:flex-row">
+        <div id="main-content" ref={mainContentRef} className="flex flex-1 flex-col gap-5 md:flex-row">
           {/* ── 사이드바 (통합) ── */}
           {/* 모바일 오버레이 */}
           {sidebarOpen && (
@@ -480,13 +781,18 @@ export default function HomePage() {
           <section
             className={`${
               sidebarOpen ? "translate-x-0" : "-translate-x-full"
-            } fixed inset-y-0 left-0 z-50 w-80 overflow-y-auto bg-white shadow-xl transition-transform md:static md:z-auto md:w-80 md:translate-x-0 md:shadow-none md:overflow-visible`}
+            } fixed inset-y-0 left-0 z-50 w-80 overflow-y-auto shadow-xl transition-transform md:static md:z-auto md:w-72 md:translate-x-0 md:shadow-none md:overflow-visible md:shrink-0`}
+            style={{ background: "var(--sidebar-bg)" }}
+            role="navigation"
+            aria-label="Sidebar"
           >
             <div className="flex flex-col gap-4 p-4 md:p-0">
               {/* 모바일 닫기 */}
               <button
                 onClick={() => setSidebarOpen(false)}
-                className="self-end rounded-lg p-1 text-slate-400 hover:text-slate-600 md:hidden"
+                className="self-end rounded-lg p-1 transition md:hidden"
+                style={{ color: "var(--text-tertiary)" }}
+                aria-label={t.closeMenu}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -495,9 +801,9 @@ export default function HomePage() {
               </button>
 
               {/* ── 1. 집 선택 ── */}
-              <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                  집
+              <div className="rounded-xl px-4 py-3 shadow-sm" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                  {t.home}
                 </label>
                 <div className="mt-1.5 flex items-center gap-2">
                   <select
@@ -508,9 +814,11 @@ export default function HomePage() {
                       setActiveRoomId(null);
                       setSelectedLocationId(null);
                     }}
-                    className="block w-full flex-1 appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                    className="block w-full flex-1 appearance-none rounded-lg px-3 py-2.5 text-sm outline-none transition"
+                    style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-primary)" }}
+                    aria-label={t.selectHome}
                   >
-                    <option value="">집을 선택하세요</option>
+                    <option value="">{t.selectHome}</option>
                     {homes.map((home) => (
                       <option key={home.id} value={home.id}>{home.name}</option>
                     ))}
@@ -521,8 +829,9 @@ export default function HomePage() {
                         const h = homes.find((h) => h.id === selectedHomeId);
                         if (h) { setEditingHomeId(h.id); setEditingHomeName(h.name); }
                       }}
-                      className="shrink-0 rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-400 shadow-sm transition hover:border-slate-300 hover:text-slate-600"
-                      title="집 이름 변경"
+                      className="shrink-0 rounded-lg p-2.5 text-xs shadow-sm transition"
+                      style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-tertiary)" }}
+                      title={t.editHomeName}
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
@@ -541,11 +850,12 @@ export default function HomePage() {
                         if (e.key === "Escape") setEditingHomeId(null);
                       }}
                       autoFocus
-                      className="flex-1 rounded-lg border border-indigo-500 bg-white px-3 py-2 text-sm text-slate-900 outline-none ring-2 ring-indigo-500/20"
-                      placeholder="집 이름"
+                      className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                      style={{ border: "1px solid var(--accent)", background: "var(--surface)", color: "var(--text-primary)" }}
+                      placeholder={t.homePlaceholder}
                     />
-                    <button onClick={() => renameHome(editingHomeId, editingHomeName)} className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white">저장</button>
-                    <button onClick={() => setEditingHomeId(null)} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500">취소</button>
+                    <button onClick={() => renameHome(editingHomeId, editingHomeName)} className="shrink-0 rounded-lg px-3 py-2 text-xs font-medium text-white" style={{ background: "var(--accent)" }}>{t.save}</button>
+                    <button onClick={() => setEditingHomeId(null)} className="shrink-0 rounded-lg px-3 py-2 text-xs" style={{ border: "1px solid var(--border)", color: "var(--text-tertiary)" }}>{t.cancel}</button>
                   </div>
                 )}
                 <div className="mt-2 flex items-center gap-2">
@@ -553,32 +863,53 @@ export default function HomePage() {
                     value={newHomeName}
                     onChange={(e) => setNewHomeName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addHome(); } }}
-                    placeholder="새 집 이름"
-                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                    placeholder={t.newHomeName}
+                    className="flex-1 rounded-lg px-3 py-2 text-sm outline-none transition"
+                    style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-primary)" }}
                   />
-                  <button onClick={addHome} className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:border-slate-300">
-                    + 집
+                  <button onClick={addHome} className="shrink-0 rounded-lg px-3 py-2 text-xs font-medium shadow-sm transition" style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-secondary)" }}>
+                    {t.addHome}
                   </button>
                 </div>
+
+                {/* Template button */}
+                {selectedHomeId && rooms.length === 0 && (
+                  <button
+                    onClick={() => setTemplateOpen(true)}
+                    className="mt-2 w-full rounded-lg px-3 py-2.5 text-xs font-medium text-white transition"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    {t.template}
+                  </button>
+                )}
               </div>
 
               {/* ── 2. 방 목록 (항상 표시) ── */}
               {selectedHomeId && (
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                <div className="rounded-xl px-4 py-3 shadow-sm" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      방
+                    <label className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+                      {t.room}
                     </label>
                     {viewMode === "2d" && (
-                      <div className="flex rounded-md border border-slate-200 overflow-hidden text-[10px] font-medium">
+                      <div className="flex rounded-md overflow-hidden text-[10px] font-medium" style={{ border: "1px solid var(--border)" }}>
                         <button
                           onClick={() => setNewRoomType("room")}
-                          className={`px-2 py-1 transition ${newRoomType === "room" ? "bg-slate-800 text-white" : "bg-white text-slate-400"}`}
-                        >방</button>
+                          className="px-2 py-1 transition"
+                          style={{
+                            background: newRoomType === "room" ? "var(--text-primary)" : "var(--surface)",
+                            color: newRoomType === "room" ? "var(--surface)" : "var(--text-tertiary)",
+                          }}
+                        >{t.room}</button>
                         <button
                           onClick={() => setNewRoomType("hallway")}
-                          className={`px-2 py-1 transition border-l border-slate-200 ${newRoomType === "hallway" ? "bg-slate-600 text-white" : "bg-white text-slate-400"}`}
-                        >복도</button>
+                          className="px-2 py-1 transition"
+                          style={{
+                            background: newRoomType === "hallway" ? "var(--text-secondary)" : "var(--surface)",
+                            color: newRoomType === "hallway" ? "white" : "var(--text-tertiary)",
+                            borderLeft: "1px solid var(--border)",
+                          }}
+                        >{t.hallway}</button>
                       </div>
                     )}
                   </div>
@@ -589,15 +920,17 @@ export default function HomePage() {
                         value={newRoomName}
                         onChange={(e) => setNewRoomName(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addRoom(); } }}
-                        placeholder={newRoomType === "hallway" ? "복도 이름" : "방 이름"}
-                        className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                        placeholder={newRoomType === "hallway" ? t.hallwayNamePlaceholder : t.roomNamePlaceholder}
+                        className="flex-1 rounded-lg px-3 py-2.5 text-sm outline-none transition"
+                        style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-primary)" }}
                       />
                       <button
                         onClick={addRoom}
                         disabled={!selectedHomeId}
-                        className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2.5 text-xs font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
+                        className="shrink-0 rounded-lg px-3 py-2.5 text-xs font-medium text-white shadow-sm transition disabled:opacity-50"
+                        style={{ background: "var(--accent)" }}
                       >
-                        추가
+                        {t.add}
                       </button>
                     </div>
                   )}
@@ -605,40 +938,45 @@ export default function HomePage() {
                   {rooms.length === 0 ? (
                     <EmptyState type="room" />
                   ) : (
-                    <ul className="space-y-1">
+                    <ul className="space-y-1" role="list">
                       {rooms.map((room) => {
                         const isActive = activeRoomId === room.id;
                         const locCount = locations.filter((l) => l.room_id === room.id).length;
                         return (
-                          <li key={room.id}>
+                          <li key={room.id} role="listitem">
                             <button
                               onClick={() => {
                                 setActiveRoomId(room.id);
                                 setSelectedLocationId(null);
                                 setItems([]);
                               }}
-                              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition ${
-                                isActive
-                                  ? "bg-indigo-50 text-indigo-700 font-semibold"
-                                  : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                              }`}
+                              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition"
+                              style={{
+                                background: isActive ? "var(--accent-light)" : "var(--surface-secondary)",
+                                color: isActive ? "var(--accent)" : "var(--text-secondary)",
+                                fontWeight: isActive ? 600 : 400,
+                              }}
+                              aria-current={isActive ? "true" : undefined}
                             >
                               <span className="flex items-center gap-1.5">
                                 {room.room_type === "hallway" ? (
-                                  <span className="text-[10px] text-slate-400">〰️</span>
+                                  <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>〰️</span>
                                 ) : (
-                                  <span className={`h-2 w-2 rounded-full ${isActive ? "bg-indigo-500" : "bg-slate-300"}`} />
+                                  <span className="h-2 w-2 rounded-full" style={{ background: isActive ? "var(--accent)" : "var(--text-quaternary)" }} />
                                 )}
                                 {room.name}
                               </span>
                               <span className="flex items-center gap-2">
-                                <span className="text-[10px] text-slate-400">{locCount}개</span>
+                                <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{t.count(locCount)}</span>
                                 {viewMode === "2d" && (
                                   <span
                                     onClick={(e) => { e.stopPropagation(); deleteRoomWithContents(room.id); }}
-                                    className="text-[10px] text-slate-300 hover:text-red-500 transition cursor-pointer"
+                                    className="text-[10px] transition cursor-pointer"
+                                    style={{ color: "var(--text-quaternary)" }}
+                                    onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+                                    onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-quaternary)")}
                                   >
-                                    삭제
+                                    {t.delete}
                                   </span>
                                 )}
                               </span>
@@ -655,32 +993,33 @@ export default function HomePage() {
                     if (!ar) return null;
                     const openings = ar.openings ?? [];
                     return (
-                      <div className="mt-3 border-t border-slate-100 pt-3">
+                      <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border-light)" }}>
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-[11px] font-semibold text-slate-500">{ar.name} 문/창문</p>
+                          <p className="text-[11px] font-semibold" style={{ color: "var(--text-tertiary)" }}>{t.doorWindow(ar.name)}</p>
                           <div className="flex gap-1">
-                            <button onClick={() => addOpening("door")} className="text-[10px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 transition">+ 문</button>
-                            <button onClick={() => addOpening("window")} className="text-[10px] px-2 py-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-600 transition">+ 창문</button>
+                            <button onClick={() => addOpening("door")} className="text-[10px] px-2 py-1 rounded transition" style={{ background: "var(--surface-secondary)", color: "var(--text-secondary)" }}>{t.addDoor}</button>
+                            <button onClick={() => addOpening("window")} className="text-[10px] px-2 py-1 rounded transition" style={{ background: "var(--accent-lighter)", color: "var(--accent)" }}>{t.addWindow}</button>
                           </div>
                         </div>
                         {openings.length === 0 ? (
-                          <p className="text-[10px] text-slate-400">아직 문이나 창문이 없어요.</p>
+                          <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{t.noDoorWindow}</p>
                         ) : (
                           <ul className="space-y-1.5">
                             {openings.map((op) => (
-                              <li key={op.id} className="flex items-center gap-1.5 text-[10px] bg-slate-50 rounded-lg px-2 py-1.5">
+                              <li key={op.id} className="flex items-center gap-1.5 text-[10px] rounded-lg px-2 py-1.5" style={{ background: "var(--surface-secondary)" }}>
                                 <span className="text-sm">{op.type === "door" ? "🚪" : "🪟"}</span>
                                 <select
                                   value={op.wall}
                                   onChange={(e) => changeOpeningWall(ar.id, op.id, e.target.value as Opening["wall"])}
-                                  className="flex-1 rounded border border-slate-200 px-1 py-0.5 text-[10px] outline-none"
+                                  className="flex-1 rounded px-1 py-0.5 text-[10px] outline-none"
+                                  style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-secondary)" }}
                                 >
-                                  <option value="n">위 벽</option>
-                                  <option value="s">아래 벽</option>
-                                  <option value="e">오른쪽 벽</option>
-                                  <option value="w">왼쪽 벽</option>
+                                  <option value="n">{t.wallN}</option>
+                                  <option value="s">{t.wallS}</option>
+                                  <option value="e">{t.wallE}</option>
+                                  <option value="w">{t.wallW}</option>
                                 </select>
-                                <button onClick={() => removeOpening(ar.id, op.id)} className="text-slate-300 hover:text-red-400 transition text-base leading-none">×</button>
+                                <button onClick={() => removeOpening(ar.id, op.id)} className="transition text-base leading-none" style={{ color: "var(--text-quaternary)" }} onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")} onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-quaternary)")}>×</button>
                               </li>
                             ))}
                           </ul>
@@ -688,28 +1027,57 @@ export default function HomePage() {
                       </div>
                     );
                   })()}
+
+                  {/* 2D: 수납공간 추가 */}
+                  {viewMode === "2d" && activeRoomId && (
+                    <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border-light)" }}>
+                      <p className="text-[11px] font-semibold mb-2" style={{ color: "var(--text-tertiary)" }}>{t.storageOf(activeRoom?.name ?? "")}</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={newLocationName}
+                          onChange={(e) => setNewLocationName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLocation(); } }}
+                          placeholder={t.storagePlaceholder}
+                          className="flex-1 rounded-lg px-3 py-2 text-xs outline-none transition"
+                          style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-primary)" }}
+                        />
+                        <button
+                          onClick={addLocation}
+                          className="shrink-0 rounded-lg px-3 py-2 text-xs font-medium text-white shadow-sm transition"
+                          style={{ background: "var(--text-primary)" }}
+                        >
+                          {t.add}
+                        </button>
+                      </div>
+                      {locations.filter((l) => l.room_id === activeRoomId).length > 0 && (
+                        <p className="mt-2 text-[10px] italic" style={{ color: "var(--text-tertiary)" }}>{t.dragToMove}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* ── 3. 수납공간 (3D 모드) ── */}
               {viewMode === "3d" && activeRoomId && !selectedLocationId && (
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
-                    수납공간 — {activeRoom?.name}
+                <div className="rounded-xl px-4 py-3 shadow-sm" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
+                    {t.storageOf(activeRoom?.name ?? "")}
                   </label>
                   <div className="mb-3 flex items-center gap-2">
                     <input
                       value={newLocationName}
                       onChange={(e) => setNewLocationName(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLocation(); } }}
-                      placeholder="예: 신발장, 서랍, 선반"
-                      className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                      placeholder={t.storagePlaceholder}
+                      className="flex-1 rounded-lg px-3 py-2.5 text-sm outline-none transition"
+                      style={{ border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-primary)" }}
                     />
                     <button
                       onClick={addLocation}
-                      className="shrink-0 rounded-lg bg-slate-800 px-3 py-2.5 text-xs font-medium text-white shadow-sm transition hover:bg-black"
+                      className="shrink-0 rounded-lg px-3 py-2.5 text-xs font-medium text-white shadow-sm transition"
+                      style={{ background: "var(--text-primary)" }}
                     >
-                      추가
+                      {t.add}
                     </button>
                   </div>
                   {locations.filter((l) => l.room_id === activeRoomId).length === 0 ? (
@@ -722,10 +1090,11 @@ export default function HomePage() {
                           <li key={loc.id}>
                             <button
                               onClick={() => setSelectedLocationId(loc.id)}
-                              className="flex w-full items-center justify-between rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-slate-700 hover:bg-indigo-50 transition"
+                              className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-xs transition"
+                              style={{ background: "var(--surface-secondary)", color: "var(--text-secondary)" }}
                             >
                               <span className="font-medium">{loc.name}</span>
-                              <span className="text-[10px] text-slate-400">{cnt}개</span>
+                              <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{t.count(cnt)}</span>
                             </button>
                           </li>
                         );
@@ -737,38 +1106,97 @@ export default function HomePage() {
 
               {/* ── 4. 물건 관리 (3D 모드 + 수납공간 선택 시) ── */}
               {viewMode === "3d" && selectedLocationId && (
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                <div className="rounded-xl px-4 py-3 shadow-sm" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <button
                         onClick={() => { setSelectedLocationId(null); setItems([]); }}
-                        className="text-[11px] text-slate-400 hover:text-indigo-600 transition"
+                        className="text-[11px] transition"
+                        style={{ color: "var(--text-tertiary)" }}
                       >
-                        ← 뒤로
+                        {t.back}
                       </button>
-                      <p className="text-sm font-semibold text-slate-800 mt-0.5">{selectedLocation?.name}</p>
-                      <p className="text-[10px] text-slate-400">{items.length}개 물건</p>
+                      <p className="text-sm font-semibold mt-0.5" style={{ color: "var(--text-primary)" }}>{selectedLocation?.name}</p>
+                      <p className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{t.itemCount(items.length)}</p>
                     </div>
-                    <button
-                      onClick={deleteSelectedLocation}
-                      className="text-[11px] font-semibold text-red-500 hover:text-red-700 transition"
-                    >
-                      삭제
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setBatchAddOpen(true)}
+                        className="text-[11px] font-medium transition rounded-md px-2 py-1"
+                        style={{ background: "var(--accent-lighter)", color: "var(--accent)" }}
+                        title={t.batchAdd}
+                      >
+                        {t.batchAdd}
+                      </button>
+                      <button
+                        onClick={deleteSelectedLocation}
+                        className="text-[11px] font-semibold transition"
+                        style={{ color: "var(--danger)" }}
+                      >
+                        {t.delete}
+                      </button>
+                    </div>
                   </div>
 
                   <ItemForm onAdd={addItem} />
+
+                  {/* Sort controls */}
+                  {items.length > 1 && (
+                    <div className="mt-3 flex items-center justify-between">
+                      <div className="relative">
+                        <button
+                          onClick={() => setSortMenuOpen(!sortMenuOpen)}
+                          className="flex items-center gap-1 text-[10px] font-medium rounded-md px-2 py-1 transition"
+                          style={{ background: "var(--surface-secondary)", color: "var(--text-tertiary)", border: "1px solid var(--border-light)" }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="4" y1="9" x2="20" y2="9" /><line x1="4" y1="15" x2="14" y2="15" /><line x1="4" y1="3" x2="8" y2="3" /><line x1="4" y1="21" x2="10" y2="21" />
+                          </svg>
+                          {t.sortBy}
+                        </button>
+                        {sortMenuOpen && (
+                          <div
+                            className="absolute top-full left-0 mt-1 rounded-lg py-1 shadow-lg z-10"
+                            style={{ background: "var(--surface)", border: "1px solid var(--border)", minWidth: "100px" }}
+                          >
+                            {(["name", "date", "quantity", "category"] as const).map((key) => {
+                              const labels = { name: t.sortName, date: t.sortDate, quantity: t.sortQuantity, category: t.sortCategory };
+                              return (
+                                <button
+                                  key={key}
+                                  onClick={() => { setSortBy(key); setSortMenuOpen(false); }}
+                                  className="block w-full text-left px-3 py-1.5 text-[11px] transition"
+                                  style={{
+                                    color: sortBy === key ? "var(--accent)" : "var(--text-secondary)",
+                                    fontWeight: sortBy === key ? 600 : 400,
+                                    background: sortBy === key ? "var(--accent-lighter)" : "transparent",
+                                  }}
+                                >
+                                  {labels[key]}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[10px]" style={{ color: "var(--text-quaternary)" }}>
+                        {t.count(items.length)}
+                      </span>
+                    </div>
+                  )}
 
                   {items.length === 0 ? (
                     <div className="mt-3">
                       <EmptyState type="item" />
                     </div>
                   ) : (
-                    <ul className="mt-3 space-y-1 text-xs">
-                      {items.map((item) => (
+                    <ul className="mt-3 space-y-1 text-xs" role="list">
+                      {sortedItems.map((item) => (
                         <li
                           key={item.id}
-                          className="group flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 transition hover:bg-indigo-50"
+                          className="group flex items-center justify-between rounded-lg px-3 py-2 transition"
+                          style={{ background: "var(--surface-secondary)" }}
+                          role="listitem"
                         >
                           {editingItemId === item.id ? (
                             <input
@@ -780,21 +1208,40 @@ export default function HomePage() {
                               }}
                               onBlur={() => updateItemName(item.id, editingItemName)}
                               autoFocus
-                              className="flex-1 rounded border border-indigo-400 px-2 py-0.5 text-xs outline-none ring-1 ring-indigo-200"
+                              className="flex-1 rounded px-2 py-0.5 text-xs outline-none"
+                              style={{ border: "1px solid var(--accent)", background: "var(--surface)", color: "var(--text-primary)" }}
                             />
                           ) : (
-                            <span
-                              onClick={() => { setEditingItemId(item.id); setEditingItemName(item.name); }}
-                              className="truncate cursor-pointer text-slate-700"
-                            >
-                              {item.name}
-                            </span>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span
+                                onClick={() => { setEditingItemId(item.id); setEditingItemName(item.name); }}
+                                className="truncate cursor-pointer"
+                                style={{ color: "var(--text-secondary)" }}
+                              >
+                                {item.name}
+                              </span>
+                              <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium"
+                                style={{ background: "var(--accent-lighter)", color: "var(--accent)" }}>
+                                {catLabels[item.category] || item.category}
+                              </span>
+                            </div>
                           )}
-                          <div className="flex items-center gap-2 shrink-0 ml-2">
-                            <span className="text-[10px] text-slate-400">x{item.quantity}</span>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>x{item.quantity}</span>
+                            {/* Move button */}
+                            <button
+                              onClick={() => setMoveItem(item)}
+                              className="opacity-0 group-hover:opacity-100 transition text-[10px] font-medium rounded px-1"
+                              style={{ color: "var(--accent)" }}
+                              title={t.moveItem}
+                            >
+                              {t.moveItem}
+                            </button>
                             <button
                               onClick={() => deleteItem(item.id)}
-                              className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition text-sm"
+                              className="opacity-0 group-hover:opacity-100 transition text-sm"
+                              style={{ color: "var(--text-quaternary)" }}
+                              aria-label={`${t.delete} ${item.name}`}
                             >
                               ×
                             </button>
@@ -808,14 +1255,14 @@ export default function HomePage() {
 
               {/* ── 3D 모드: 방 미선택 ── */}
               {viewMode === "3d" && !activeRoomId && rooms.length > 0 && (
-                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                <div className="rounded-xl px-4 py-3 shadow-sm" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>
                   <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
                       <polyline points="9 22 9 12 15 12 15 22" />
                     </svg>
-                    <p className="text-sm font-medium text-slate-600">3D 화면에서 방을 클릭하세요</p>
-                    <p className="text-xs text-slate-400">수납공간과 물건을 관리할 수 있어요</p>
+                    <p className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>{t.clickRoomIn3D}</p>
+                    <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>{t.manageStorageItems}</p>
                   </div>
                 </div>
               )}
@@ -823,34 +1270,54 @@ export default function HomePage() {
           </section>
 
           {/* ── 캔버스 영역 ── */}
-          <section className="flex-1 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <section className="flex-1 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--surface)" }} role="main">
             {/* 캔버스 헤더 */}
-            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
+            <div className="flex items-center justify-between gap-2 px-5 py-3" style={{ borderBottom: "1px solid var(--border-light)" }}>
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">집 구조</h2>
-                <p className="text-[11px] text-slate-400">
-                  {viewMode === "2d" ? "방을 배치하고 크기를 조정하세요" : "가구를 클릭해서 물건을 관리하세요"}
+                <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{t.floorPlan}</h2>
+                <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                  {viewMode === "2d" ? t.viewDesignDesc : t.viewExploreDesc}
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-[11px] font-semibold">
+                <div className="inline-flex overflow-hidden rounded-lg text-[11px] font-semibold" style={{ border: "1px solid var(--border)", background: "var(--surface-secondary)" }}>
                   <button
                     onClick={() => setViewMode("2d")}
-                    className={`px-3 py-1.5 transition ${viewMode === "2d" ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-100"}`}
-                  >2D</button>
+                    className="px-3 py-1.5 transition flex items-center gap-1"
+                    style={{
+                      background: viewMode === "2d" ? "var(--text-primary)" : "transparent",
+                      color: viewMode === "2d" ? "var(--surface)" : "var(--text-tertiary)",
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <line x1="3" y1="12" x2="21" y2="12" />
+                      <line x1="12" y1="3" x2="12" y2="21" />
+                    </svg>
+                    {t.viewDesign}
+                  </button>
                   <button
                     onClick={() => { setViewMode("3d"); setHas3DInitialized(true); }}
-                    className={`px-3 py-1.5 transition ${viewMode === "3d" ? "bg-indigo-600 text-white" : "text-slate-400 hover:bg-slate-100"}`}
-                  >3D</button>
+                    className="px-3 py-1.5 transition flex items-center gap-1"
+                    style={{
+                      background: viewMode === "3d" ? "var(--accent)" : "transparent",
+                      color: viewMode === "3d" ? "white" : "var(--text-tertiary)",
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+                    </svg>
+                    {t.viewExplore}
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div className="relative h-[520px] w-full" style={{ background: "#ffffff" }}>
+            <div className="relative h-[calc(100vh-220px)] min-h-[500px] w-full" style={{ background: "var(--canvas-bg)" }}>
               {/* 빈 상태 */}
               {!selectedHomeId && (
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <EmptyState type="home" action={addHome} actionLabel="첫 번째 집 만들기" />
+                  <EmptyState type="home" action={addHome} actionLabel={t.emptyHomeAction} />
                 </div>
               )}
               {selectedHomeId && rooms.length === 0 && (
@@ -893,24 +1360,24 @@ export default function HomePage() {
                     className="pointer-events-none absolute inset-0"
                     style={{
                       backgroundImage:
-                        "repeating-linear-gradient(rgba(0,0,0,0.04) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, rgba(0,0,0,0.04) 0 1px, transparent 1px 28px)",
+                        `repeating-linear-gradient(var(--canvas-grid) 0 1px, transparent 1px 28px), repeating-linear-gradient(90deg, var(--canvas-grid) 0 1px, transparent 1px 28px)`,
                       backgroundSize: "28px 28px",
                     }}
                   />
-                  <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-2 text-[10px] text-slate-500">
-                    <div className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 shadow-sm border border-slate-100">
-                      <span className="text-[9px] text-slate-400">줌</span>
-                      <button onClick={() => setZoom((z) => Math.max(0.5, parseFloat((z - 0.1).toFixed(2))))} className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">-</button>
+                  <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-2 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                    <div className="inline-flex items-center gap-1 rounded-full px-2 py-1 shadow-sm" style={{ background: "var(--surface)", border: "1px solid var(--border-light)" }}>
+                      <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{t.zoom}</span>
+                      <button onClick={() => setZoom((z) => Math.max(0.5, parseFloat((z - 0.1).toFixed(2))))} className="flex h-5 w-5 items-center justify-center rounded-full" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>-</button>
                       <span className="w-8 text-center tabular-nums">{(zoom * 100).toFixed(0)}%</span>
-                      <button onClick={() => setZoom((z) => Math.min(2, parseFloat((z + 0.1).toFixed(2))))} className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">+</button>
+                      <button onClick={() => setZoom((z) => Math.min(2, parseFloat((z + 0.1).toFixed(2))))} className="flex h-5 w-5 items-center justify-center rounded-full" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>+</button>
                     </div>
-                    <div className="inline-flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 shadow-sm border border-slate-100">
-                      <span className="text-[9px] text-slate-400">이동</span>
-                      <button onClick={() => setPan((p) => ({ ...p, y: p.y + 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">↑</button>
-                      <button onClick={() => setPan((p) => ({ ...p, x: p.x - 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">←</button>
-                      <button onClick={() => setPan((p) => ({ ...p, x: p.x + 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">→</button>
-                      <button onClick={() => setPan((p) => ({ ...p, y: p.y - 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">↓</button>
-                      <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="ml-1 flex h-5 items-center justify-center rounded-full border border-slate-200 bg-white px-2 hover:bg-slate-50">초기화</button>
+                    <div className="inline-flex items-center gap-1 rounded-full px-2 py-1 shadow-sm" style={{ background: "var(--surface)", border: "1px solid var(--border-light)" }}>
+                      <span className="text-[9px]" style={{ color: "var(--text-tertiary)" }}>{t.pan}</span>
+                      <button onClick={() => setPan((p) => ({ ...p, y: p.y + 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>↑</button>
+                      <button onClick={() => setPan((p) => ({ ...p, x: p.x - 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>←</button>
+                      <button onClick={() => setPan((p) => ({ ...p, x: p.x + 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>→</button>
+                      <button onClick={() => setPan((p) => ({ ...p, y: p.y - 40 }))} className="flex h-5 w-5 items-center justify-center rounded-full" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>↓</button>
+                      <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="ml-1 flex h-5 items-center justify-center rounded-full px-2" style={{ border: "1px solid var(--border)", background: "var(--surface)" }}>{t.reset}</button>
                     </div>
                   </div>
                   <div
@@ -918,13 +1385,13 @@ export default function HomePage() {
                     onMouseMove={handleOpDragMove}
                     onMouseUp={handleOpDragEnd}
                     onMouseLeave={handleOpDragEnd}
-                    style={{ cursor: opDrag ? "grabbing" : undefined }}
+                    style={{ cursor: opDrag || locDrag ? "grabbing" : undefined }}
                   >
                     <div
                       className="relative h-full w-full origin-center"
                       style={{
                         transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                        transition: "transform 150ms ease-out",
+                        transition: opDrag || locDrag ? "none" : "transform 150ms ease-out",
                       }}
                     >
                       {rooms.map((room) => {
@@ -956,7 +1423,7 @@ export default function HomePage() {
                                 background: room.room_type === "hallway"
                                   ? "repeating-linear-gradient(-45deg, #ddd6c8 0, #ddd6c8 1.5px, #ede8e0 1.5px, #ede8e0 8px)"
                                   : "#f5ead6",
-                                border: `${room.room_type === "hallway" ? 6 : 10}px solid ${isActiveRoom ? "#4F46E5" : room.room_type === "hallway" ? "#6b7280" : "#2c2c2c"}`,
+                                border: `${room.room_type === "hallway" ? 6 : 10}px solid ${isActiveRoom ? "var(--accent)" : room.room_type === "hallway" ? "#6b7280" : "#2c2c2c"}`,
                                 boxSizing: "border-box",
                                 borderRadius: 2,
                                 position: "relative",
@@ -968,7 +1435,7 @@ export default function HomePage() {
                             >
                               {/* 문/창문 SVG 오버레이 + 드래그 핸들 */}
                               {(room.openings ?? []).length > 0 && (() => {
-                                const wallColor = isActiveRoom ? "#4F46E5" : "#2c2c2c";
+                                const wallColor = isActiveRoom ? "var(--accent)" : "#2c2c2c";
                                 const floorColor = "#f5ead6";
                                 const iw = room.width - 20;
                                 const ih = room.height - 20;
@@ -1101,7 +1568,7 @@ export default function HomePage() {
                               <div
                                 className="room-drag-handle"
                                 style={{
-                                  background: isActiveRoom ? "#4F46E5" : "#2c2c2c",
+                                  background: isActiveRoom ? "var(--accent)" : "#2c2c2c",
                                   color: "white", padding: "3px 8px", fontSize: "10px",
                                   fontWeight: 700, cursor: "move", display: "flex",
                                   justifyContent: "space-between", alignItems: "center",
@@ -1118,37 +1585,47 @@ export default function HomePage() {
                                 >×</button>
                               </div>
 
-                              {/* 바닥 영역 — 수납공간 박스 표시 */}
+                              {/* 바닥 영역 — 수납공간 박스 표시 (드래그 가능) */}
                               <div style={{ position: "relative", height: "calc(100% - 22px)", overflow: "hidden" }}>
                                 {getLocationsByRoomId(room.id).map((loc) => {
                                   const isLocSelected = selectedLocationId === loc.id;
+                                  const isDraggingLoc = locDrag?.locId === loc.id;
                                   const itemCnt = allItems.filter((i) => i.location_id === loc.id).length;
                                   return (
                                     <div
                                       key={loc.id}
-                                      onClick={(e) => {
+                                      onMouseDown={(e) => {
                                         e.stopPropagation();
                                         setActiveRoomId(room.id);
                                         setSelectedLocationId(loc.id);
                                         fetchItems(loc.id);
+                                        setLocDrag({
+                                          locId: loc.id,
+                                          roomId: room.id,
+                                          startX: loc.x,
+                                          startY: loc.y,
+                                          startClientX: e.clientX,
+                                          startClientY: e.clientY,
+                                        });
                                       }}
                                       style={{
                                         position: "absolute", left: loc.x, top: loc.y,
                                         width: loc.width, height: loc.height, zIndex: 30,
                                         background: isLocSelected ? "rgba(79,70,229,0.25)" : "rgba(255,255,255,0.55)",
-                                        border: `1.5px solid ${isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.25)"}`,
-                                        borderRadius: 2, boxSizing: "border-box", cursor: "pointer",
+                                        border: `1.5px ${isDraggingLoc ? "dashed" : "solid"} ${isLocSelected ? "var(--accent)" : "rgba(0,0,0,0.25)"}`,
+                                        borderRadius: 2, boxSizing: "border-box",
+                                        cursor: isDraggingLoc ? "grabbing" : "grab",
                                         display: "flex", flexDirection: "column", alignItems: "center",
                                         justifyContent: "center", gap: 1, userSelect: "none",
-                                        transition: "border-color 120ms, background 120ms",
+                                        transition: isDraggingLoc ? "none" : "border-color 120ms, background 120ms",
                                       }}
                                     >
-                                      <span style={{ fontSize: "9px", fontWeight: 700, color: isLocSelected ? "#4F46E5" : "rgba(0,0,0,0.6)", lineHeight: 1.2, textAlign: "center", padding: "0 2px" }}>
+                                      <span style={{ fontSize: "9px", fontWeight: 700, color: isLocSelected ? "var(--accent)" : "rgba(0,0,0,0.6)", lineHeight: 1.2, textAlign: "center", padding: "0 2px" }}>
                                         {loc.name}
                                       </span>
                                       {itemCnt > 0 && (
                                         <span style={{ fontSize: "8px", color: isLocSelected ? "#6d60f0" : "rgba(0,0,0,0.35)" }}>
-                                          {itemCnt}개
+                                          {t.count(itemCnt)}
                                         </span>
                                       )}
                                     </div>

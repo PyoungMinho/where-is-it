@@ -3,6 +3,47 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --surface: #ffffff;
+  --surface-secondary: #F9FAFB;
+  --border: #e2e8f0;
+  --border-light: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --text-quaternary: #cbd5e1;
+  --accent: #4F46E5;
+  --accent-hover: #4338CA;
+  --accent-light: #E0E7FF;
+  --accent-lighter: #EEF2FF;
+  --danger: #EF4444;
+  --danger-hover: #DC2626;
+  --canvas-bg: #ffffff;
+  --canvas-grid: rgba(0,0,0,0.04);
+  --sidebar-bg: #ffffff;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+  --background: #0B0F1A;
+  --foreground: #E2E8F0;
+  --surface: #141926;
+  --surface-secondary: #1A2035;
+  --border: #2A3150;
+  --border-light: #1E2740;
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-tertiary: #64748B;
+  --text-quaternary: #475569;
+  --accent: #818CF8;
+  --accent-hover: #6366F1;
+  --accent-light: rgba(99, 102, 241, 0.15);
+  --accent-lighter: rgba(99, 102, 241, 0.08);
+  --danger: #F87171;
+  --danger-hover: #EF4444;
+  --canvas-bg: #0F1420;
+  --canvas-grid: rgba(255,255,255,0.03);
+  --sidebar-bg: #141926;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
 }
 
 @theme inline {
@@ -16,17 +57,41 @@
   --animate-skeleton: skeleton 1.5s ease-in-out infinite;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Theme transition for smooth dark mode switching */
+[data-theme] * {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease, box-shadow 0.2s ease;
+}
+
+/* Skip link for accessibility */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--accent);
+  color: white;
+  padding: 8px 16px;
+  z-index: 10000;
+  transition: top 0.2s;
+  border-radius: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* Focus visible styles for accessibility */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 @keyframes fadeIn {
@@ -47,4 +112,19 @@ body {
 @keyframes skeleton {
   0% { background-position: -200px 0; }
   100% { background-position: calc(200px + 100%) 0; }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }

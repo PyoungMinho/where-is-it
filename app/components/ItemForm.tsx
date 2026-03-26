@@ -1,16 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-
-const CATEGORY_OPTIONS = [
-  { value: "electronics", label: "전자기기" },
-  { value: "documents", label: "서류/문서" },
-  { value: "daily", label: "생활용품" },
-  { value: "clothes", label: "의류" },
-  { value: "kitchen", label: "주방용품" },
-  { value: "tools", label: "공구" },
-  { value: "etc", label: "기타" },
-];
+import { useI18n } from "@/lib/i18n";
 
 type ItemFormProps = {
   onAdd: (data: {
@@ -22,6 +13,7 @@ type ItemFormProps = {
 };
 
 export default function ItemForm({ onAdd }: ItemFormProps) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [category, setCategory] = useState("etc");
   const [quantity, setQuantity] = useState(1);
@@ -29,6 +21,16 @@ export default function ItemForm({ onAdd }: ItemFormProps) {
   const [showMemo, setShowMemo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+
+  const categoryOptions = [
+    { value: "electronics", label: t.catElectronics },
+    { value: "documents", label: t.catDocuments },
+    { value: "daily", label: t.catDaily },
+    { value: "clothes", label: t.catClothes },
+    { value: "kitchen", label: t.catKitchen },
+    { value: "tools", label: t.catTools },
+    { value: "etc", label: t.catEtc },
+  ];
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -66,7 +68,7 @@ export default function ItemForm({ onAdd }: ItemFormProps) {
             handleSubmit();
           }
         }}
-        placeholder="물건 이름 (예: 건전지, 여권, 리모컨)"
+        placeholder={t.itemName}
         className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
       />
 
@@ -76,14 +78,13 @@ export default function ItemForm({ onAdd }: ItemFormProps) {
           onChange={(e) => setCategory(e.target.value)}
           className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-700 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
         >
-          {CATEGORY_OPTIONS.map((opt) => (
+          {categoryOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
           ))}
         </select>
 
-        {/* 수량 스테퍼 */}
         <div className="flex items-center rounded-lg border border-slate-200 bg-white">
           <button
             type="button"
@@ -105,20 +106,19 @@ export default function ItemForm({ onAdd }: ItemFormProps) {
         </div>
       </div>
 
-      {/* 메모 토글 */}
       {!showMemo ? (
         <button
           type="button"
           onClick={() => setShowMemo(true)}
           className="text-[11px] text-slate-400 hover:text-indigo-500 transition"
         >
-          + 메모 추가
+          {t.addMemo}
         </button>
       ) : (
         <textarea
           value={memo}
           onChange={(e) => setMemo(e.target.value)}
-          placeholder="메모 (선택사항)"
+          placeholder={t.memoPlaceholder}
           rows={2}
           className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 placeholder:text-slate-400 outline-none resize-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
         />
@@ -129,7 +129,7 @@ export default function ItemForm({ onAdd }: ItemFormProps) {
         disabled={!name.trim() || submitting}
         className="inline-flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {submitting ? "등록 중..." : "물건 추가하기"}
+        {submitting ? t.submitting : t.addItem}
       </button>
     </div>
   );

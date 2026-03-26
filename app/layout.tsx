@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { I18nProvider } from "@/lib/i18n";
+import { ThemeProvider } from "@/lib/theme";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "어디있니? — 집 안 물건 찾기",
-  description: "집 안에 잘 두고도 잃어버리는 물건을 쉽게 찾기 위한 3D 홈 인벤토리 앱",
+  title: "Where Is It? — Home Inventory",
+  description: "A 3D home inventory app to easily find things you put away and forgot",
 };
 
 export default function RootLayout({
@@ -23,11 +25,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <ThemeProvider>
+          <I18nProvider>
+            {children}
+          </I18nProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

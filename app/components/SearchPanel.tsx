@@ -4,26 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import type { Item } from "@/types/item";
 import type { Location } from "@/types/location";
 import type { Room } from "@/types/room";
-
-const CATEGORIES = [
-  { key: "all", label: "전체" },
-  { key: "electronics", label: "전자기기" },
-  { key: "documents", label: "서류" },
-  { key: "daily", label: "생활용품" },
-  { key: "clothes", label: "의류" },
-  { key: "kitchen", label: "주방" },
-  { key: "tools", label: "공구" },
-  { key: "etc", label: "기타" },
-];
-
-type SearchPanelProps = {
-  open: boolean;
-  onClose: () => void;
-  allItems: Item[];
-  locations: Location[];
-  rooms: Room[];
-  onSelect: (item: Item, location: Location, room: Room) => void;
-};
+import { useI18n } from "@/lib/i18n";
 
 const RECENT_KEY = "where-is-it-recent-search";
 
@@ -42,6 +23,15 @@ function saveRecentSearch(query: string) {
   localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, 5)));
 }
 
+type SearchPanelProps = {
+  open: boolean;
+  onClose: () => void;
+  allItems: Item[];
+  locations: Location[];
+  rooms: Room[];
+  onSelect: (item: Item, location: Location, room: Room) => void;
+};
+
 export default function SearchPanel({
   open,
   onClose,
@@ -50,10 +40,22 @@ export default function SearchPanel({
   rooms,
   onSelect,
 }: SearchPanelProps) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const categories = [
+    { key: "all", label: t.catAll },
+    { key: "electronics", label: t.catElectronics },
+    { key: "documents", label: t.catDocumentsShort },
+    { key: "daily", label: t.catDaily },
+    { key: "clothes", label: t.catClothes },
+    { key: "kitchen", label: t.catKitchenShort },
+    { key: "tools", label: t.catTools },
+    { key: "etc", label: t.catEtc },
+  ];
 
   useEffect(() => {
     if (open) {
@@ -68,15 +70,9 @@ export default function SearchPanel({
     const handleKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        if (!open) {
-          // 부모에서 open을 제어하므로 여기선 아무것도 안함
-        } else {
-          onClose();
-        }
+        if (open) onClose();
       }
-      if (e.key === "Escape" && open) {
-        onClose();
-      }
+      if (e.key === "Escape" && open) onClose();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -88,15 +84,12 @@ export default function SearchPanel({
     return allItems
       .filter((item) => {
         const nameMatch = item.name.toLowerCase().includes(q);
-        const catMatch =
-          categoryFilter === "all" || item.category === categoryFilter;
+        const catMatch = categoryFilter === "all" || item.category === categoryFilter;
         return nameMatch && catMatch;
       })
       .map((item) => {
         const location = locations.find((l) => l.id === item.location_id);
-        const room = location
-          ? rooms.find((r) => r.id === location.room_id)
-          : undefined;
+        const room = location ? rooms.find((r) => r.id === location.room_id) : undefined;
         return { item, location, room };
       })
       .filter(
@@ -116,18 +109,8 @@ export default function SearchPanel({
         className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden animate-slideUp"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 검색 입력 */}
         <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#94a3b8"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <path d="M21 21l-4.35-4.35" />
           </svg>
@@ -135,7 +118,7 @@ export default function SearchPanel({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="어디에 뒀더라? 물건 이름을 검색하세요"
+            placeholder={t.searchTitle}
             className="flex-1 bg-transparent text-base text-slate-900 placeholder:text-slate-400 outline-none"
           />
           <kbd className="hidden sm:inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-400">
@@ -143,9 +126,8 @@ export default function SearchPanel({
           </kbd>
         </div>
 
-        {/* 카테고리 필터 */}
         <div className="flex items-center gap-1.5 overflow-x-auto px-5 py-3 border-b border-slate-50">
-          {CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <button
               key={cat.key}
               onClick={() => setCategoryFilter(cat.key)}
@@ -160,12 +142,11 @@ export default function SearchPanel({
           ))}
         </div>
 
-        {/* 결과 */}
         <div className="max-h-[340px] overflow-y-auto">
           {!query.trim() && recentSearches.length > 0 && (
             <div className="px-5 py-3">
               <p className="mb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                최근 검색
+                {t.recentSearch}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {recentSearches.map((s) => (
@@ -188,10 +169,10 @@ export default function SearchPanel({
                 <path d="M21 21l-4.35-4.35" />
               </svg>
               <p className="text-sm text-slate-400">
-                &quot;{query}&quot;에 대한 결과가 없어요
+                {t.noResults(query)}
               </p>
               <p className="text-xs text-slate-300">
-                다른 이름으로 검색해보세요
+                {t.tryOtherName}
               </p>
             </div>
           )}
@@ -238,22 +219,21 @@ export default function SearchPanel({
           )}
         </div>
 
-        {/* 풋터 */}
         <div className="flex items-center justify-between border-t border-slate-100 px-5 py-2.5 text-[10px] text-slate-400">
           <span>
             {results.length > 0
-              ? `${results.length}개 결과`
-              : "물건 이름으로 검색"}
+              ? t.resultCount(results.length)
+              : t.searchByName}
           </span>
           <div className="flex items-center gap-2">
             <kbd className="rounded border border-slate-200 bg-slate-50 px-1 py-0.5 font-mono">
               ↵
             </kbd>
-            <span>선택</span>
+            <span>{t.select}</span>
             <kbd className="rounded border border-slate-200 bg-slate-50 px-1 py-0.5 font-mono">
               esc
             </kbd>
-            <span>닫기</span>
+            <span>{t.close}</span>
           </div>
         </div>
       </div>
